@@ -202,32 +202,32 @@ def register(
     # APPROVAL RULE
     #
     # Operator:
-    #   Automatically approved
-    #
-    # First Administrator:
-    #   Automatically approved as bootstrap administrator
+    #   Automatically approved and active
     #
     # Reviewer:
     #   Administrator approval required
     #
-    # Later Administrators:
-    #   Administrator approval required
+    # Administrator:
+    #   Bootstrap/Administrator approval required
     # -----------------------------------------------------
 
-    existing_admin = db.query(User).filter(
-        User.role == "Administrator",
-        User.active == True,
-        User.approval_status == "Approved",
-    ).first()
-
-    is_first_admin = (
-        b.role == "Administrator"
-        and existing_admin is None
-    )
+    # -----------------------------------------------------
+    # APPROVAL RULE
+    #
+    # Operator:
+    #   Automatically approved and active
+    #
+    # Reviewer:
+    #   Administrator approval required
+    #
+    # Administrator:
+    #   Explicit bootstrap/Administrator approval required,
+    #   including the first Administrator
+    # -----------------------------------------------------
 
     approval_status = (
         "Approved"
-        if b.role == "Operator" or is_first_admin
+        if b.role == "Operator"
         else "Pending"
     )
 
@@ -238,10 +238,7 @@ def register(
         mobile=b.mobile,
         password_hash=hash_password(b.password),
         role=b.role,
-        active=(
-            b.role == "Operator"
-            or is_first_admin
-        ),
+        active=(b.role == "Operator"),
         mfa_enabled=True,
         email_verified=False,
         mobile_verified=False,
@@ -615,6 +612,93 @@ def verify_otp(
             "role": user.role,
             "email": user.email,
         },
+    }
+
+
+# ---------------------------------------------------------
+# BOOTSTRAP FIRST ADMINISTRATOR APPROVAL
+# ---------------------------------------------------------
+
+class BootstrapApprovalRequest(BaseModel):
+    username: str
+    token: str
+
+
+@app.post("/api/auth/bootstrap-approve")
+def bootstrap_approve(
+    b: BootstrapApprovalRequest,
+    db: Session = Depends(get_db),
+):
+    # Bootstrap approval is disabled unless a server-side
+    # token has been configured in the environment.
+    if not settings.agis_bootstrap_approval_token:
+        raise HTTPException(
+            503,
+            "Bootstrap approval is not configured",
+        )
+
+    # Constant-time token comparison.
+    if not secrets.compare_digest(
+        b.token,
+        settings.agis_bootstrap_approval_token,
+    ):
+        raise HTTPException(
+            401,
+            "Invalid bootstrap token",
+        )
+
+    # Bootstrap is only allowed while there is no approved
+    # active Administrator.
+    existing_admin = db.query(User).filter(
+        User.role == "Administrator",
+        User.active == True,
+        User.approval_status == "Approved",
+    ).first()
+
+    if existing_admin:
+        raise HTTPException(
+            403,
+            "Bootstrap approval is no longer available",
+        )
+
+    # Locate the Administrator waiting for approval.
+    user = db.query(User).filter(
+        User.username == b.username,
+        User.role == "Administrator",
+    ).first()
+
+    if not user:
+        raise HTTPException(
+            404,
+            "Administrator account not found",
+        )
+
+    if user.approval_status == "Approved" and user.active:
+        raise HTTPException(
+            409,
+            "Administrator is already approved",
+        )
+
+    # Require completion of email verification before
+    # bootstrap approval.
+    if not user.email_verified:
+        raise HTTPException(
+            403,
+            "Administrator email must be verified first",
+        )
+
+    user.approval_status = "Approved"
+    user.active = True
+
+    db.commit()
+    db.refresh(user)
+
+    return {
+        "message": "Administrator approved successfully",
+        "username": user.username,
+        "role": user.role,
+        "approval_status": user.approval_status,
+        "active": user.active,
     }
 
 

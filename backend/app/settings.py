@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     twilio_auth_token: str = ""
     twilio_from_number: str = ""
     openai_api_key: str = ""
+    agis_bootstrap_approval_token: str = ""
     openai_model: str = "gpt-5.6"
     s3_endpoint: str = ""
     s3_bucket: str = "agis-documents"
