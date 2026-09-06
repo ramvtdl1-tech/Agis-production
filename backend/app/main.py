@@ -204,16 +204,30 @@ def register(
     # Operator:
     #   Automatically approved
     #
+    # First Administrator:
+    #   Automatically approved as bootstrap administrator
+    #
     # Reviewer:
     #   Administrator approval required
     #
-    # Administrator:
+    # Later Administrators:
     #   Administrator approval required
     # -----------------------------------------------------
 
+    existing_admin = db.query(User).filter(
+        User.role == "Administrator",
+        User.active == True,
+        User.approval_status == "Approved",
+    ).first()
+
+    is_first_admin = (
+        b.role == "Administrator"
+        and existing_admin is None
+    )
+
     approval_status = (
         "Approved"
-        if b.role == "Operator"
+        if b.role == "Operator" or is_first_admin
         else "Pending"
     )
 
@@ -222,22 +236,15 @@ def register(
         username=b.username,
         email=b.email,
         mobile=b.mobile,
-
-        password_hash=hash_password(
-            b.password
-        ),
-
+        password_hash=hash_password(b.password),
         role=b.role,
-
         active=(
             b.role == "Operator"
+            or is_first_admin
         ),
-
         mfa_enabled=True,
-
         email_verified=False,
         mobile_verified=False,
-
         approval_status=approval_status,
     )
 
