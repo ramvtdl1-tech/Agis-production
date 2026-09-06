@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: agis
+      POSTGRES_USER: agis
+      POSTGRES_PASSWORD: change-me
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL","pg_isready -U agis -d agis"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  redis:
+    image: redis:8-alpine
+    command: ["redis-server","--appendonly","yes"]
+    volumes: [redisdata:/data]
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: change-me
+    volumes: [miniodata:/data]
+    ports: ["9000:9000","9001:9001"]
+  api:
+    build: ./backend
+    env_file: .env
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_started}
+    ports: ["8000:8000"]
+    volumes: ["./backend:/app"]
+  worker:
+    build: ./backend
+    command: celery -A app.worker.celery_app worker --loglevel=INFO
+    env_file: .env
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_started}
+    volumes: ["./backend:/app"]
+  frontend:
+    build: ./frontend
+    ports: ["5173:5173"]
+    depends_on: [api]
+    volumes: ["./frontend:/app","/app/node_modules"]
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
