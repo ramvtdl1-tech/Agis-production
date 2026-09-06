@@ -252,19 +252,21 @@ def register(
     code = random_otp()
 
     challenge = OTPChallenge(
-        user_id=user.id,
+    user_id=user.id,
 
-        code_hash=hash_value(
-            code
-        ),
+    code_hash=hash_value(
+        code
+    ),
 
-        expires_at=(
-            datetime.now(timezone.utc)
-            + timedelta(
-                minutes=settings.otp_minutes
-            )
-        ),
-    )
+    expires_at=(
+        datetime.now(timezone.utc)
+        + timedelta(
+            minutes=settings.otp_minutes
+        )
+    ),
+
+    channel="email",
+)
 
     db.add(challenge)
     db.commit()
