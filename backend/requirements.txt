@@ -17,3 +17,5 @@ python-magic>=0.4,<1
 openai>=1.100,<3
 email-validator>=2.2,<3
 twilio
+
+requests==2.32.5

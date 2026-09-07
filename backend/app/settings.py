@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     smtp_username: str = ""
     smtp_password: str = ""
     smtp_from: str = "agis@example.gov"
+    resend_api_key: str = ""
+    resend_from: str = "onboarding@resend.dev"
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""
     twilio_from_number: str = ""
