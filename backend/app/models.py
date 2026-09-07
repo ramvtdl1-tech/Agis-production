@@ -71,7 +71,48 @@ class OTPChallenge(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
     )
+class ApprovalChallenge(Base):
+    __tablename__ = "approval_challenges"
 
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    target_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        index=True,
+    )
+
+    requested_by: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        index=True,
+    )
+
+    channel: Mapped[str] = mapped_column(
+        String(20),
+        index=True,
+    )
+
+    code_hash: Mapped[str] = mapped_column(
+        String(255),
+    )
+
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+    )
+
+    consumed: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+    )
+
+    attempts: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+    )
 class RefreshToken(Base):
     __tablename__="refresh_tokens"
     id:Mapped[int]=mapped_column(primary_key=True)

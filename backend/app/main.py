@@ -21,6 +21,7 @@ from .db import Base, engine, get_db
 from .models import (
     User,
     OTPChallenge,
+    ApprovalChallenge,
     RefreshToken,
     Permission,
     Document,
@@ -96,6 +97,16 @@ class UserApprovalRequest(BaseModel):
     action: str
 
 
+class ApprovalOTPRequest(BaseModel):
+    user_id: int
+    channel: str = "email"
+
+
+class ApprovalOTPVerifyRequest(BaseModel):
+    challenge_id: int
+    code: str
+
+
 class TransformRequest(BaseModel):
     document_id: int
     output_type: str
@@ -161,55 +172,54 @@ def register(
         "Administrator",
     }
 
-    # Validate role
+    # -----------------------------------------------------
+    # VALIDATE ROLE
+    # -----------------------------------------------------
+
     if b.role not in allowed_roles:
         raise HTTPException(
-            400,
-            "Invalid role",
+            status_code=400,
+            detail="Invalid role",
         )
 
-    # Username uniqueness
+    # -----------------------------------------------------
+    # USERNAME UNIQUENESS
+    # -----------------------------------------------------
+
     if db.query(User).filter(
         User.username == b.username
     ).first():
 
         raise HTTPException(
-            409,
-            "Username already exists",
+            status_code=409,
+            detail="Username already exists",
         )
 
-    # Email uniqueness
+    # -----------------------------------------------------
+    # EMAIL UNIQUENESS
+    # -----------------------------------------------------
+
     if db.query(User).filter(
         User.email == b.email
     ).first():
 
         raise HTTPException(
-            409,
-            "Email already registered",
+            status_code=409,
+            detail="Email already registered",
         )
 
-    # Mobile uniqueness
+    # -----------------------------------------------------
+    # MOBILE UNIQUENESS
+    # -----------------------------------------------------
+
     if db.query(User).filter(
         User.mobile == b.mobile
     ).first():
 
         raise HTTPException(
-            409,
-            "Mobile number already registered",
+            status_code=409,
+            detail="Mobile number already registered",
         )
-
-    # -----------------------------------------------------
-    # APPROVAL RULE
-    #
-    # Operator:
-    #   Automatically approved and active
-    #
-    # Reviewer:
-    #   Administrator approval required
-    #
-    # Administrator:
-    #   Bootstrap/Administrator approval required
-    # -----------------------------------------------------
 
     # -----------------------------------------------------
     # APPROVAL RULE
@@ -248,40 +258,40 @@ def register(
     db.add(user)
     db.commit()
     db.refresh(user)
-
     # -----------------------------------------------------
-    # CREATE OTP
+    # CREATE REGISTRATION OTP
     # -----------------------------------------------------
 
     code = random_otp()
 
     challenge = OTPChallenge(
-    user_id=user.id,
-
-    code_hash=hash_value(
-        code
-    ),
-
-    expires_at=(
-        datetime.now(timezone.utc)
-        + timedelta(
-            minutes=settings.otp_minutes
-        )
-    ),
-
-    channel="email",
-)
+        user_id=user.id,
+        channel="email",
+        code_hash=hash_value(code),
+        expires_at=(
+            datetime.now(timezone.utc)
+            + timedelta(
+                minutes=settings.otp_minutes
+            )
+        ),
+    )
 
     db.add(challenge)
     db.commit()
 
-    # Send OTP
+    # -----------------------------------------------------
+    # SEND OTP
+    # -----------------------------------------------------
+
     send_otp(
         user.email,
         code,
     )
 
-    # Audit
+    # -----------------------------------------------------
+    # AUDIT REGISTRATION
+    # -----------------------------------------------------
+
     audit(
         db,
         user,
@@ -291,18 +301,39 @@ def register(
         ip(request),
     )
 
+    # -----------------------------------------------------
+    # RESPONSE MESSAGE
+    # -----------------------------------------------------
+
+    if b.role == "Operator":
+
+        message = (
+            "Registration successful. "
+            "Verify your OTP."
+        )
+
+    elif is_first_admin:
+
+        message = (
+            "First Administrator registered successfully. "
+            "Verify your OTP."
+        )
+
+    else:
+
+        message = (
+            "Registration submitted. "
+            "Verify your OTP; administrator approval "
+            "is required before login."
+        )
+
     return {
         "challenge_id": challenge.id,
         "requires_otp": True,
         "approval_status": approval_status,
-
-        "message": (
-            "Registration successful. Verify your OTP."
-            if b.role == "Operator"
-            else
-            "Registration submitted. Verify your OTP; "
-            "administrator approval is required."
-        ),
+        "active": user.active,
+        "role": user.role,
+        "message": message,
     }
 
 
@@ -322,12 +353,19 @@ def register_verify_otp(
         60,
     )
 
+    # -----------------------------------------------------
+    # FIND OTP CHALLENGE
+    # -----------------------------------------------------
+
     ch = db.get(
         OTPChallenge,
         b.challenge_id,
     )
 
-    # Validate challenge
+    # -----------------------------------------------------
+    # VALIDATE CHALLENGE
+    # -----------------------------------------------------
+
     if (
         not ch
         or ch.consumed
@@ -335,23 +373,38 @@ def register_verify_otp(
         or ch.expires_at < datetime.now(timezone.utc)
     ):
         raise HTTPException(
-            401,
-            "OTP expired or invalid",
+            status_code=401,
+            detail="OTP expired or invalid",
         )
+
+    # -----------------------------------------------------
+    # INCREMENT ATTEMPTS
+    # -----------------------------------------------------
 
     ch.attempts += 1
 
-    # Validate OTP
+    # -----------------------------------------------------
+    # VALIDATE OTP CODE
+    # -----------------------------------------------------
+
     if hash_value(b.code) != ch.code_hash:
 
         db.commit()
 
         raise HTTPException(
-            401,
-            "Invalid OTP",
+            status_code=401,
+            detail="Invalid OTP",
         )
 
+    # -----------------------------------------------------
+    # CONSUME OTP
+    # -----------------------------------------------------
+
     ch.consumed = True
+
+    # -----------------------------------------------------
+    # FIND USER
+    # -----------------------------------------------------
 
     user = db.get(
         User,
@@ -359,20 +412,27 @@ def register_verify_otp(
     )
 
     if not user:
+
         db.commit()
 
         raise HTTPException(
-            404,
-            "User not found",
+            status_code=404,
+            detail="User not found",
         )
 
-    # Contact verification
+    # -----------------------------------------------------
+    # VERIFY CONTACT DETAILS
+    # -----------------------------------------------------
+
     user.email_verified = True
     user.mobile_verified = True
 
     db.commit()
 
-    # Audit
+    # -----------------------------------------------------
+    # AUDIT OTP VERIFICATION
+    # -----------------------------------------------------
+
     audit(
         db,
         user,
@@ -382,21 +442,32 @@ def register_verify_otp(
         ip(request),
     )
 
+    # -----------------------------------------------------
+    # RESPONSE
+    # -----------------------------------------------------
+
+    if user.approval_status == "Approved":
+
+        message = (
+            "Registration verified. "
+            "You can now log in."
+        )
+
+    else:
+
+        message = (
+            "Registration verified. "
+            "Administrator approval is required "
+            "before login."
+        )
+
     return {
         "verified": True,
         "approval_status": user.approval_status,
         "active": user.active,
         "role": user.role,
-
-        "message": (
-            "Registration verified. You can now log in."
-            if user.approval_status == "Approved"
-            else
-            "Registration verified. Administrator approval "
-            "is required before login."
-        ),
+        "message": message,
     }
-
 
 # ---------------------------------------------------------
 # LOGIN
@@ -1247,6 +1318,151 @@ def users(
 # APPROVE / REJECT USER
 # ---------------------------------------------------------
 
+@app.post("/api/users/{user_id}/approval/request")
+def request_approval_otp(
+    user_id: int,
+    b: ApprovalOTPRequest,
+    user: User = Depends(require_permission("User Management", "approve")),
+    db: Session = Depends(get_db),
+):
+    if user.role != "Administrator" or user.approval_status != "Approved" or not user.active:
+        raise HTTPException(status_code=403, detail="Administrator approval required")
+
+    target = db.get(User, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if target.role != "Reviewer":
+        raise HTTPException(status_code=400, detail="Only Reviewer accounts can be approved with OTP")
+
+    if target.approval_status != "Pending":
+        raise HTTPException(status_code=409, detail="Reviewer is not pending approval")
+
+    if not target.email:
+        raise HTTPException(status_code=400, detail="Reviewer has no registered email")
+
+    if not target.email_verified:
+        raise HTTPException(status_code=403, detail="Reviewer email must be verified first")
+
+    if b.channel != "email":
+        raise HTTPException(status_code=400, detail="Only email approval OTP is currently supported")
+
+    db.query(ApprovalChallenge).filter(
+        ApprovalChallenge.target_user_id == target.id,
+        ApprovalChallenge.consumed == False,
+    ).update({"consumed": True}, synchronize_session=False)
+
+    code = random_otp()
+
+    challenge = ApprovalChallenge(
+        target_user_id=target.id,
+        requested_by=user.id,
+        channel="email",
+        code_hash=hash_value(code),
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=settings.otp_minutes),
+        consumed=False,
+        attempts=0,
+    )
+
+    db.add(challenge)
+    db.commit()
+    db.refresh(challenge)
+
+    send_otp(target.email, code)
+
+    audit(
+        db,
+        user.id,
+        "approval_otp_requested",
+        "User",
+        target.id,
+        {"channel": "email"},
+    )
+
+    return {
+        "message": "Approval OTP sent successfully",
+        "challenge_id": challenge.id,
+        "channel": "email",
+    }
+
+
+@app.post("/api/auth/approval/verify")
+def verify_approval_otp(
+    b: ApprovalOTPVerifyRequest,
+    db: Session = Depends(get_db),
+):
+    challenge = db.get(ApprovalChallenge, b.challenge_id)
+
+    if not challenge:
+        raise HTTPException(status_code=404, detail="Approval challenge not found")
+
+    if challenge.consumed:
+        raise HTTPException(status_code=400, detail="Approval OTP has already been used")
+
+    now = datetime.now(timezone.utc)
+
+    if challenge.expires_at <= now:
+        challenge.consumed = True
+        db.commit()
+        raise HTTPException(status_code=400, detail="Approval OTP has expired")
+
+    if challenge.attempts >= 5:
+        challenge.consumed = True
+        db.commit()
+        raise HTTPException(status_code=429, detail="Too many invalid OTP attempts")
+
+    target = db.get(User, challenge.target_user_id)
+
+    if not target:
+        challenge.consumed = True
+        db.commit()
+        raise HTTPException(status_code=404, detail="Reviewer account not found")
+
+    if target.role != "Reviewer":
+        raise HTTPException(status_code=400, detail="Only Reviewer accounts can be approved with OTP")
+
+    if target.approval_status != "Pending":
+        challenge.consumed = True
+        db.commit()
+        raise HTTPException(status_code=409, detail="Reviewer is no longer pending approval")
+
+    challenge.attempts += 1
+
+    if not secrets.compare_digest(hash_value(b.code), challenge.code_hash):
+        if challenge.attempts >= 5:
+            challenge.consumed = True
+        db.commit()
+        raise HTTPException(status_code=401, detail="Invalid approval OTP")
+
+    challenge.consumed = True
+
+    target.approval_status = "Approved"
+    target.active = True
+    target.approved_by = challenge.requested_by
+
+    db.commit()
+    db.refresh(target)
+
+    audit(
+        db,
+        challenge.requested_by,
+        "reviewer_approved",
+        "User",
+        target.id,
+        {"channel": challenge.channel},
+    )
+
+    return {
+        "message": "Reviewer approved successfully",
+        "user_id": target.id,
+        "username": target.username,
+        "role": target.role,
+        "approval_status": target.approval_status,
+        "active": target.active,
+        "approved_by": target.approved_by,
+    }
+
+
 @app.post("/api/users/{user_id}/approval")
 def update_user_approval(
     user_id: int,
@@ -1318,36 +1534,10 @@ def update_user_approval(
     # =====================================================
 
     if b.action == "approve":
-
-        target.approval_status = "Approved"
-        target.active = True
-        target.approved_by = user.id
-
-        db.commit()
-
-        audit(
-            db,
-            user,
-            "User Approved",
-            "User Management",
-            (
-                f"Approved registration for "
-                f"{target.username} "
-                f"({target.role})"
-            ),
-            ip(request),
+        raise HTTPException(
+            400,
+            "Direct approval is disabled. Send an approval OTP instead.",
         )
-
-        return {
-            "success": True,
-            "user_id": target.id,
-            "username": target.username,
-            "role": target.role,
-            "approval_status": target.approval_status,
-            "active": target.active,
-            "approved_by": target.approved_by,
-            "message": "User approved and activated",
-        }
 
     # =====================================================
     # REJECT
