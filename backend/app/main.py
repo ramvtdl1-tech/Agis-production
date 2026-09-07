@@ -312,13 +312,6 @@ def register(
             "Verify your OTP."
         )
 
-    elif is_first_admin:
-
-        message = (
-            "First Administrator registered successfully. "
-            "Verify your OTP."
-        )
-
     else:
 
         message = (
