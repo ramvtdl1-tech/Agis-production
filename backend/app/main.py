@@ -1315,6 +1315,146 @@ def users(
 
 
 # ---------------------------------------------------------
+# REQUEST REVIEWER APPROVAL OTP
+# ---------------------------------------------------------
+
+@app.post("/api/users/{user_id}/approval/request")
+def request_approval_otp(
+    user_id: int,
+    b: ApprovalOTPRequest,
+    request: Request,
+
+    user=Depends(
+        require_permission(
+            "User Management",
+            "approve",
+        )
+    ),
+
+    db: Session = Depends(get_db),
+):
+    # Only an approved active Administrator can request
+    # Reviewer approval OTPs.
+    if (
+        user.role != "Administrator"
+        or user.approval_status != "Approved"
+        or not user.active
+    ):
+        raise HTTPException(
+            403,
+            "Administrator approval required",
+        )
+
+    limit(
+        f"approval-otp-request:{user.id}:{user_id}",
+        5,
+        3600,
+    )
+
+    if b.user_id != user_id:
+        raise HTTPException(
+            400,
+            "User ID does not match request path",
+        )
+
+    target = db.get(
+        User,
+        user_id,
+    )
+
+    if not target:
+        raise HTTPException(
+            404,
+            "User not found",
+        )
+
+    if target.role != "Reviewer":
+        raise HTTPException(
+            400,
+            "Only Reviewer accounts can be approved with OTP",
+        )
+
+    if target.approval_status != "Pending":
+        raise HTTPException(
+            409,
+            "Reviewer is not pending approval",
+        )
+
+    if not target.email:
+        raise HTTPException(
+            400,
+            "Reviewer has no registered email",
+        )
+
+    if not target.email_verified:
+        raise HTTPException(
+            403,
+            "Reviewer email must be verified first",
+        )
+
+    if b.channel != "email":
+        raise HTTPException(
+            400,
+            "Only email approval OTP is currently supported",
+        )
+
+    # Invalidate any previous active approval challenge.
+    db.query(
+        ApprovalChallenge
+    ).filter(
+        ApprovalChallenge.target_user_id == target.id,
+        ApprovalChallenge.consumed == False,
+    ).update(
+        {"consumed": True},
+        synchronize_session=False,
+    )
+
+    code = random_otp()
+
+    challenge = ApprovalChallenge(
+        target_user_id=target.id,
+        requested_by=user.id,
+        channel="email",
+        code_hash=hash_value(code),
+        expires_at=(
+            datetime.now(timezone.utc)
+            + timedelta(
+                minutes=settings.otp_minutes
+            )
+        ),
+        consumed=False,
+        attempts=0,
+    )
+
+    db.add(challenge)
+    db.commit()
+    db.refresh(challenge)
+
+    send_otp(
+        target.email,
+        code,
+    )
+
+    audit(
+        db,
+        user,
+        "Approval OTP Requested",
+        "User Management",
+        (
+            f"Approval OTP requested for Reviewer "
+            f"{target.username}"
+        ),
+        ip(request),
+    )
+
+    return {
+        "message": "Approval OTP sent successfully",
+        "challenge_id": challenge.id,
+        "channel": "email",
+    }
+
+
+# ---------------------------------------------------------
 # APPROVE / REJECT USER
 # ---------------------------------------------------------
 
@@ -1531,9 +1671,15 @@ def update_user_approval(
 
     # =====================================================
     # APPROVE
+    #
+    # Direct approval is intentionally disabled.
+    # Administrator sends an approval OTP to the Reviewer's
+    # registered email. The Reviewer completes approval by
+    # entering that OTP.
     # =====================================================
 
     if b.action == "approve":
+
         raise HTTPException(
             400,
             "Direct approval is disabled. Send an approval OTP instead.",
@@ -1571,6 +1717,146 @@ def update_user_approval(
         "active": target.active,
         "approved_by": target.approved_by,
         "message": "User registration rejected",
+    }
+
+
+# ---------------------------------------------------------
+# VERIFY REVIEWER APPROVAL OTP
+# ---------------------------------------------------------
+
+@app.post("/api/auth/approval/verify")
+def verify_approval_otp(
+    b: ApprovalOTPVerifyRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    limit(
+        f"approval-otp-verify:{ip(request)}",
+        10,
+        60,
+    )
+
+    challenge = db.get(
+        ApprovalChallenge,
+        b.challenge_id,
+    )
+
+    if not challenge:
+        raise HTTPException(
+            404,
+            "Approval challenge not found",
+        )
+
+    if challenge.consumed:
+        raise HTTPException(
+            400,
+            "Approval OTP has already been used",
+        )
+
+    now = datetime.now(timezone.utc)
+
+    if challenge.expires_at <= now:
+        challenge.consumed = True
+        db.commit()
+
+        raise HTTPException(
+            400,
+            "Approval OTP has expired",
+        )
+
+    if challenge.attempts >= settings.otp_max_attempts:
+        challenge.consumed = True
+        db.commit()
+
+        raise HTTPException(
+            429,
+            "Maximum OTP attempts exceeded",
+        )
+
+    target = db.get(
+        User,
+        challenge.target_user_id,
+    )
+
+    if not target:
+        challenge.consumed = True
+        db.commit()
+
+        raise HTTPException(
+            404,
+            "Reviewer account not found",
+        )
+
+    if target.role != "Reviewer":
+        challenge.consumed = True
+        db.commit()
+
+        raise HTTPException(
+            400,
+            "Approval OTP is only valid for Reviewer accounts",
+        )
+
+    if target.approval_status != "Pending":
+        challenge.consumed = True
+        db.commit()
+
+        raise HTTPException(
+            409,
+            "Reviewer is no longer pending approval",
+        )
+
+    challenge.attempts += 1
+
+    if not secrets.compare_digest(
+        hash_value(b.code),
+        challenge.code_hash,
+    ):
+        if challenge.attempts >= settings.otp_max_attempts:
+            challenge.consumed = True
+
+        db.commit()
+
+        raise HTTPException(
+            401,
+            "Invalid approval OTP",
+        )
+
+    # OTP is valid. Complete approval.
+    challenge.consumed = True
+
+    target.approval_status = "Approved"
+    target.active = True
+    target.approved_by = challenge.requested_by
+
+    db.commit()
+    db.refresh(target)
+
+    approver = db.get(
+        User,
+        challenge.requested_by,
+    )
+
+    audit(
+        db,
+        approver,
+        "Reviewer Approved",
+        "User Management",
+        (
+            f"Reviewer {target.username} "
+            f"approved through email approval OTP"
+        ),
+        ip(request),
+    )
+
+    return {
+        "success": True,
+        "message": "Reviewer approved successfully",
+        "user_id": target.id,
+        "username": target.username,
+        "role": target.role,
+        "approval_status": target.approval_status,
+        "active": target.active,
+        "approved_by": target.approved_by,
     }
 
 

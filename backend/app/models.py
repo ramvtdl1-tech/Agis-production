@@ -76,16 +76,19 @@ class ApprovalChallenge(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
+    # Reviewer whose account is being approved
     target_user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id"),
         index=True,
     )
 
+    # Administrator who requested the approval OTP
     requested_by: Mapped[int] = mapped_column(
         ForeignKey("users.id"),
         index=True,
     )
 
+    # Currently only email is supported
     channel: Mapped[str] = mapped_column(
         String(20),
         index=True,
@@ -113,6 +116,8 @@ class ApprovalChallenge(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
     )
+
+
 class RefreshToken(Base):
     __tablename__="refresh_tokens"
     id:Mapped[int]=mapped_column(primary_key=True)
