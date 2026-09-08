@@ -1969,6 +1969,27 @@ function OutputSidebar({transformation}){
     </div>
   </div>;
 }
+function Transformations(){const[r,setR]=useState([]);useEffect(() => {
+  let alive = true;
+
+  const loadTransformations = async () => {
+    try {
+      const data = await api.transformations();
+      if (alive) setR(data);
+    } catch (e) {
+      // Keep mock data
+    }
+  };
+
+  loadTransformations();
+
+  return () => {
+    alive = false;
+  };
+}, []);
+const rows=r.length?r:recentMock.map((x,i)=>({id:i+1,output_type:x.output,status:x.status,created_at:new Date().toISOString()}));return <><PageTitle title="Transformations" sub="Create, configure, validate and review AI-generated outputs." actions={<NavLink className="btn primary" to="/transformations/new"><Plus size={16}/>New Transformation</NavLink>}/><Card><Toolbar searchText="Search transformations..."><Button variant="select">All Status <ChevronDown size={13}/></Button><Button variant="select">All Output Types <ChevronDown size={13}/></Button></Toolbar><Table><thead><tr><th>ID</th><th>Output Type</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>{rows.map(x=><tr key={x.id}><td>#{x.id}</td><td>{x.output_type}</td><td><Badge>{x.status}</Badge></td><td>{new Date(x.created_at).toLocaleString()}</td><td><NavLink to={`/transformations/${x.id}`} className="blue-link"><Eye size={15}/>View</NavLink></td></tr>)}</tbody></Table></Card></>}
+
+
 function Review(){
   const{id}=useParams();
   const[t,setT]=useState(null);
