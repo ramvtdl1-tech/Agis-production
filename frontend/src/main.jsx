@@ -2511,6 +2511,113 @@ function Review(){
   </>;
 }
 
+function ProfilePage({user}){
+  const n=useNavigate();
+
+  return <>
+    <PageTitle
+      title="My Profile"
+      sub="View your AGIS account information."
+      crumb={<>
+        <NavLink to="/dashboard">Dashboard</NavLink>
+        <ChevronRight size={13}/>
+        Profile
+      </>}
+    />
+
+    <div className="content-grid">
+      <Card>
+        <div className="profile-page-head">
+          <RoleAvatar user={user} className="large"/>
+          <div>
+            <h2>{user?.name||"—"}</h2>
+            <span>{user?.role||"—"}</span>
+          </div>
+        </div>
+
+        <div className="config-fields">
+          <label>
+            <span>Name</span>
+            <div className="select-field">
+              <UserRound size={15}/>
+              <input value={user?.name||""} readOnly/>
+            </div>
+          </label>
+
+          <label>
+            <span>Username</span>
+            <div className="select-field">
+              <UserRound size={15}/>
+              <input value={user?.username||""} readOnly/>
+            </div>
+          </label>
+
+          <label>
+            <span>Email</span>
+            <div className="select-field">
+              <Mail size={15}/>
+              <input value={user?.email||""} readOnly/>
+            </div>
+          </label>
+
+          <label>
+            <span>Role</span>
+            <div className="select-field">
+              <ShieldCheck size={15}/>
+              <input value={user?.role||""} readOnly/>
+            </div>
+          </label>
+        </div>
+
+        <div className="form-actions">
+          <Button
+            variant="secondary"
+            onClick={()=>n("/dashboard")}
+          >
+            <ArrowLeft size={15}/>
+            Back to Dashboard
+          </Button>
+        </div>
+      </Card>
+
+      <div className="side-stack">
+        <Card>
+          <h3>Account</h3>
+
+          <div className="summary-row">
+            <IconBox tone="green">
+              <ShieldCheck size={15}/>
+            </IconBox>
+
+            <div>
+              <span>Role</span>
+              <b>{user?.role||"—"}</b>
+            </div>
+          </div>
+
+          <div className="summary-row">
+            <IconBox tone="blue">
+              <Mail size={15}/>
+            </IconBox>
+
+            <div>
+              <span>Email</span>
+              <b>{user?.email||"—"}</b>
+            </div>
+          </div>
+        </Card>
+
+        <div className="notice compact">
+          <ShieldCheck size={18}/>
+          <span>
+            Account information is controlled by your AGIS role and permissions.
+          </span>
+        </div>
+      </div>
+    </div>
+  </>;
+}
+
 function RoleGate({user,roles,children}){if(!roles.includes(user?.role))return <Card><h2>Access Restricted</h2><p className="section-sub">Your role does not have permission to view this module.</p></Card>;return children}
 function App(){const visual=new URLSearchParams(window.location.search).has("visual");if(window.location.pathname==="/__visual/login")
   return <Login done={()=>{}} showRegister={()=>{}}/>;if(window.location.pathname==="/approval")
