@@ -577,21 +577,43 @@ function Register({back}){
   );
 }
 
-function Dashboard(){const[d,setD]=useState(null);useEffect(() => {
-  let alive = true;
+function Dashboard(){
+  const[d,setD]=useState(null);
 
-  api.dashboard()
-    .then(data => {
-      if (alive) setD(data);
-    })
-    .catch(() => {
-      if (alive) setD({});
-    });
+  useEffect(() => {
+    let alive = true;
 
-  return () => {
-    alive = false;
-  };
-}, []);const counts=d?.counts||{};return <><PageTitle title="Good Morning, Operator" sub="Welcome to your secure AI workspace." actions={<NavLink className="btn primary" to="/transformations/new"><Plus size={17}/>New Transformation</NavLink>}/><div className="stat-grid">{[["Documents",counts.documents||12,FileText,"blue"],["Processed",counts.processed||8,Sparkles,"blue"],["For Review",counts.for_review||2,Users,"amber"],["Approved",counts.approved||6,ShieldCheck,"green"]].map(([l,n,I,t])=><Card className="stat-card" key={l}><IconBox tone={t}><I size={20}/></IconBox><div><span>{l}</span><strong>{n}</strong></div></Card>)}</div><div className="content-grid dashboard-grid"><Card className="table-card"><div className="card-head"><div><h2>Recent Transformations</h2></div><NavLink to="/transformations">View all <ChevronRight size={15}/></NavLink></div><Table><thead><tr><th>Document</th><th>Output</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>{recentMock.map(x=><tr key={x.name}><td><FileText size={15}/> {x.name}</td><td>{x.output}</td><td><Badge>{x.status}</Badge></td><td>{x.created}</td><td><Eye size={15}/> View</td></tr>)}</tbody></Table></Card><Card className="quick-card"><div className="card-head"><h2>Quick Actions</h2></div>{[[Upload,"Upload Document","/documents","blue"],[RefreshCw,"New Transformation","/transformations/new","blue"],[Users,"Review Outputs","/transformations","green"]].map(([I,l,to,t])=><NavLink className="quick-action" to={to} key={l}><IconBox tone={t}><I size={19}/></IconBox><b>{l}</b><ChevronRight size={16}/></NavLink>)}</Card></div><Card className="workflow-card"><div className="card-head"><h2>AGIS Workflow</h2></div><div className="workflow">{[[FileText,"SOURCE","blue"],[Sparkles,"TRANSFORM","blue"],[ShieldCheck,"VALIDATE","green"],[UserRound,"REVIEW","gray"],[Download,"EXPORT","gray"]].map(([I,l,t],i)=><React.Fragment key={l}><div className="workflow-step"><IconBox tone={t}><I size={19}/></IconBox><b>{l}</b></div>{i<4&&<ArrowRight size={17} className="workflow-arrow"/>}</React.Fragment>)}</div></Card></>}
+    api.dashboard()
+      .then(data => {
+        if (alive) setD(data);
+      })
+      .catch(() => {
+        if (alive) setD({});
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const indiaHour=Number(
+    new Intl.DateTimeFormat("en-IN",{
+      timeZone:"Asia/Kolkata",
+      hour:"2-digit",
+      hourCycle:"h23"
+    }).format(new Date())
+  );
+
+  const greeting=
+    indiaHour>=5 && indiaHour<12
+      ? "Good Morning"
+      : indiaHour>=12 && indiaHour<17
+        ? "Good Afternoon"
+        : "Good Evening";
+
+  const counts=d?.counts||{};
+
+  return <><PageTitle title={`${greeting}, Operator`} sub="Welcome to our secure AI workspace." actions={<NavLink className="btn primary" to="/transformations/new"><Plus size={17}/>New Transformation</NavLink>}/><div className="stat-grid">{[["Documents",counts.documents||12,FileText,"blue"],["Processed",counts.processed||8,Sparkles,"blue"],["For Review",counts.for_review||2,Users,"amber"],["Approved",counts.approved||6,ShieldCheck,"green"]].map(([l,n,I,t])=><Card className="stat-card" key={l}><IconBox tone={t}><I size={20}/></IconBox><div><span>{l}</span><strong>{n}</strong></div></Card>)}</div><div className="content-grid dashboard-grid"><Card className="table-card"><div className="card-head"><div><h2>Recent Transformations</h2></div><NavLink to="/transformations">View all <ChevronRight size={15}/></NavLink></div><Table><thead><tr><th>Document</th><th>Output</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>{recentMock.map(x=><tr key={x.name}><td><FileText size={15}/> {x.name}</td><td>{x.output}</td><td><Badge>{x.status}</Badge></td><td>{x.created}</td><td><Eye size={15}/> View</td></tr>)}</tbody></Table></Card><Card className="quick-card"><div className="card-head"><h2>Quick Actions</h2></div>{[[Upload,"Upload Document","/documents","blue"],[RefreshCw,"New Transformation","/transformations/new","blue"],[Users,"Review Outputs","/transformations","green"]].map(([I,l,to,t])=><NavLink className="quick-action" to={to} key={l}><IconBox tone={t}><I size={19}/></IconBox><b>{l}</b><ChevronRight size={16}/></NavLink>)}</Card></div><Card className="workflow-card"><div className="card-head"><h2>AGIS Workflow</h2></div><div className="workflow">{[[FileText,"SOURCE","blue"],[Sparkles,"TRANSFORM","blue"],[ShieldCheck,"VALIDATE","green"],[UserRound,"REVIEW","gray"],[Download,"EXPORT","gray"]].map(([I,l,t],i)=><React.Fragment key={l}><div className="workflow-step"><IconBox tone={t}><I size={19}/></IconBox><b>{l}</b></div>{i<4&&<ArrowRight size={17} className="workflow-arrow"/>}</React.Fragment>)}</div></Card></>}
 
 function Table({children}){return <div className="table-wrap"><table>{children}</table></div>}
 function Toolbar({searchText="Search...",children}){return <div className="toolbar"><div className="search"><Search size={16}/><input placeholder={searchText}/></div><div className="filters">{children}</div></div>}
