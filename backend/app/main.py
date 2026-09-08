@@ -33,7 +33,7 @@ from .security import *
 from .rate_limit import limit
 from .mailer import send_otp
 from .audit import audit
-from .storage import ensure_bucket, put_object
+from .storage import ensure_bucket, put_object, get_object, delete_object
 from .worker import extract_document, generate_transformation
 
 
@@ -850,6 +850,11 @@ def dashboard(
 
 @app.get("/api/documents")
 def documents(
+    page: int = 1,
+    page_size: int = 5,
+    search: str = "",
+    status: str = "",
+    doc_type: str = "",
     user=Depends(
         require_permission(
             "Documents",
@@ -858,25 +863,113 @@ def documents(
     ),
     db: Session = Depends(get_db),
 ):
-    return [
-        {
-            "id": x.id,
-            "name": x.name,
-            "mime_type": x.mime_type,
-            "size_bytes": x.size_bytes,
-            "status": x.status,
-            "extraction_status": x.extraction_status,
-            "created_at": x.created_at.isoformat(),
+    page = max(page, 1)
+    page_size = min(max(page_size, 1), 50)
+
+    query = (
+        db.query(
+            Document,
+            User.name.label("owner_name"),
+            User.role.label("owner_role"),
+        )
+        .join(
+            User,
+            Document.owner_id == User.id,
+        )
+    )
+
+    if search.strip():
+        search_value = f"%{search.strip()}%"
+        query = query.filter(
+            Document.name.ilike(search_value)
+        )
+
+    if status.strip():
+        normalized_status = status.strip().lower()
+
+        if normalized_status == "ready":
+            query = query.filter(
+                Document.extraction_status == "Complete"
+            )
+        elif normalized_status == "queued":
+            query = query.filter(
+                Document.extraction_status == "Queued"
+            )
+        elif normalized_status == "processing":
+            query = query.filter(
+                Document.extraction_status == "Processing"
+            )
+        elif normalized_status == "failed":
+            query = query.filter(
+                Document.extraction_status == "Failed"
+            )
+
+    if doc_type.strip():
+        normalized_type = doc_type.strip().lower()
+
+        type_map = {
+            "pdf": "%pdf%",
+            "docx": "%wordprocessingml.document%",
+            "xlsx": "%spreadsheetml.sheet%",
         }
 
-        for x in db.query(
-            Document
-        )
-        .order_by(
-            Document.created_at.desc()
-        )
+        mime_pattern = type_map.get(normalized_type)
+
+        if mime_pattern:
+            query = query.filter(
+                Document.mime_type.ilike(mime_pattern)
+            )
+
+    total = query.count()
+
+    rows = (
+        query
+        .order_by(Document.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
         .all()
-    ]
+    )
+
+    items = []
+
+    for document, owner_name, owner_role in rows:
+        if document.extraction_status == "Complete":
+            display_status = "Ready"
+        elif document.extraction_status == "Processing":
+            display_status = "Processing"
+        elif document.extraction_status == "Failed":
+            display_status = "Failed"
+        else:
+            display_status = "Queued"
+
+        items.append(
+            {
+                "id": document.id,
+                "name": document.name,
+                "mime_type": document.mime_type,
+                "size_bytes": document.size_bytes,
+                "status": display_status,
+                "extraction_status": document.extraction_status,
+                "owner_id": document.owner_id,
+                "owner": owner_name or "Unknown",
+                "owner_role": owner_role or "",
+                "created_at": document.created_at.isoformat(),
+            }
+        )
+
+    pages = (
+        (total + page_size - 1) // page_size
+        if total
+        else 0
+    )
+
+    return {
+        "items": items,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "pages": pages,
+    }
 
 
 # ---------------------------------------------------------
@@ -1009,6 +1102,165 @@ async def upload(
         "id": d.id,
         "name": d.name,
         "extraction_status": d.extraction_status,
+    }
+
+
+# ---------------------------------------------------------
+# DOCUMENT ACTIONS
+# ---------------------------------------------------------
+
+@app.get("/api/documents/{document_id}/download")
+def download_document(
+    document_id: int,
+    user=Depends(
+        require_permission(
+            "Documents",
+            "view",
+        )
+    ),
+    db: Session = Depends(get_db),
+):
+    document = db.get(Document, document_id)
+
+    if not document:
+        raise HTTPException(404, "Document not found")
+
+    tmp = f"/tmp/agis-download-{document.id}-{document.name}"
+
+    try:
+        get_object(document.object_key, tmp)
+
+        return FileResponse(
+            tmp,
+            media_type=document.mime_type,
+            filename=document.name,
+        )
+    except Exception as e:
+        raise HTTPException(
+            500,
+            f"Unable to download document: {e}",
+        )
+
+
+@app.get("/api/documents/{document_id}/preview")
+def preview_document(
+    document_id: int,
+    user=Depends(
+        require_permission(
+            "Documents",
+            "view",
+        )
+    ),
+    db: Session = Depends(get_db),
+):
+    document = db.get(Document, document_id)
+
+    if not document:
+        raise HTTPException(404, "Document not found")
+
+    tmp = f"/tmp/agis-preview-{document.id}-{document.name}"
+
+    try:
+        get_object(document.object_key, tmp)
+
+        return FileResponse(
+            tmp,
+            media_type=document.mime_type,
+            filename=document.name,
+            headers={
+                "Content-Disposition": f'inline; filename="{document.name}"'
+            },
+        )
+    except Exception as e:
+        raise HTTPException(
+            500,
+            f"Unable to preview document: {e}",
+        )
+
+
+@app.post("/api/documents/{document_id}/reprocess")
+def reprocess_document(
+    document_id: int,
+    request: Request,
+    user=Depends(
+        require_permission(
+            "Documents",
+            "update",
+        )
+    ),
+    db: Session = Depends(get_db),
+):
+    document = db.get(Document, document_id)
+
+    if not document:
+        raise HTTPException(404, "Document not found")
+
+    document.extraction_status = "Queued"
+    document.extracted_text = ""
+    db.commit()
+    db.refresh(document)
+
+    extract_document.delay(document.id)
+
+    audit(
+        db,
+        user,
+        "Document Reprocessing Requested",
+        "Documents",
+        f"Reprocessing requested for document {document.name}",
+        ip(request),
+    )
+
+    return {
+        "message": "Document reprocessing started",
+        "id": document.id,
+        "status": document.extraction_status,
+    }
+
+
+@app.delete("/api/documents/{document_id}")
+def delete_document(
+    document_id: int,
+    request: Request,
+    user=Depends(
+        require_permission(
+            "Documents",
+            "delete",
+        )
+    ),
+    db: Session = Depends(get_db),
+):
+    document = db.get(Document, document_id)
+
+    if not document:
+        raise HTTPException(404, "Document not found")
+
+    document_name = document.name
+    object_key = document.object_key
+
+    try:
+        delete_object(object_key)
+    except Exception as e:
+        raise HTTPException(
+            500,
+            f"Unable to delete stored document: {e}",
+        )
+
+    db.delete(document)
+    db.commit()
+
+    audit(
+        db,
+        user,
+        "Document Deleted",
+        "Documents",
+        f"Document {document_name} deleted",
+        ip(request),
+    )
+
+    return {
+        "message": "Document deleted successfully",
+        "id": document_id,
     }
 
 

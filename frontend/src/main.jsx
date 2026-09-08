@@ -631,19 +631,393 @@ function Dashboard({user}){
 
 function Table({children}){return <div className="table-wrap"><table>{children}</table></div>}
 function Toolbar({searchText="Search...",children}){return <div className="toolbar"><div className="search"><Search size={16}/><input placeholder={searchText}/></div><div className="filters">{children}</div></div>}
-function Documents(){const[d,setD]=useState([]);useEffect(() => {
-  let alive = true;
+function Documents(){
+  const[d,setD]=useState([]);
+  const[meta,setMeta]=useState({page:1,page_size:5,total:0,pages:0});
+  const[search,setSearch]=useState("");
+  const[status,setStatus]=useState("");
+  const[type,setType]=useState("");
+  const[loading,setLoading]=useState(true);
+  const[error,setError]=useState("");
+  const[page,setPage]=useState(1);
 
-  api.documents()
-    .then(data => {
-      if (alive) setD(data);
-    })
-    .catch(() => {});
+  const load=async(nextPage=page)=>{
+    setLoading(true);
+    setError("");
 
-  return () => {
-    alive = false;
+    try{
+      const data=await api.documents({
+        page:nextPage,
+        page_size:5,
+        search,
+        status,
+        doc_type:type
+      });
+
+      setD(data.items||[]);
+      setMeta({
+        page:data.page||nextPage,
+        page_size:data.page_size||5,
+        total:data.total||0,
+        pages:data.pages||0
+      });
+    }catch(e){
+      setError(e.message||"Failed to load documents");
+      setD([]);
+    }finally{
+      setLoading(false);
+    }
   };
-}, []);const rows=d.length?d.map(x=>({name:x.name,type:x.mime_type?.includes("word")?"DOCX":x.mime_type?.includes("sheet")?"XLSX":"PDF",size:(x.size_bytes/1048576).toFixed(1)+" MB",status:x.status||x.extraction_status,created:new Date(x.created_at).toLocaleString()})):docsMock;async function up(e){if(e.target.files[0]){await api.upload(e.target.files[0]);const r=await api.documents();setD(r)}}return <><PageTitle title="Documents" sub="Manage and organize organizational content for secure GenAI transformation." actions={<label className="btn primary"><Plus size={17}/>Upload Document<input hidden type="file" accept=".pdf,.docx,.xlsx" onChange={up}/></label>}/><Card><Toolbar searchText="Search documents..."><Button variant="select">All Status <ChevronDown size={14}/></Button><Button variant="select">All Types <ChevronDown size={14}/></Button><Button variant="select"><Filter size={14}/> Filters</Button></Toolbar><Table><thead><tr><th>Document</th><th>Type</th><th>Status</th><th>Owner</th><th>Created</th><th>Actions</th></tr></thead><tbody>{rows.map(x=><tr key={x.name}><td><div className="doc-cell"><IconBox tone={x.type.toLowerCase()}><FileText size={17}/></IconBox><div><b>{x.name}</b><span>{x.size}</span></div></div></td><td><Badge tone={x.type.toLowerCase()}>{x.type}</Badge></td><td><Badge>{x.status}</Badge></td><td><span className="owner"><span>OP</span>Operator</span></td><td>{x.created}</td><td className="row-actions"><Eye size={15}/><RefreshCw size={15}/><MoreVertical size={16}/></td></tr>)}</tbody></Table><div className="table-foot"><span>Showing 1 to 5 of 24 documents</span><Pager/></div></Card><div className="notice"><ShieldCheck size={19}/><div><b>Secure. Controlled. Compliant.</b><span>All documents are encrypted and access is controlled based on your role permissions.</span></div><a href="#">Learn more <ExternalLink size={13}/></a></div></>}
+
+  useEffect(()=>{
+    load(1);
+  },[search,status,type]);
+
+  const rows=d.map(x=>({
+    id:x.id,
+    name:x.name,
+    type:x.mime_type?.includes("word")
+      ?"DOCX"
+      :x.mime_type?.includes("sheet")
+        ?"XLSX"
+        :"PDF",
+    size:x.size_bytes
+      ?(x.size_bytes/1048576).toFixed(1)+" MB"
+      :"—",
+    status:x.status||x.extraction_status||"Queued",
+    owner:x.owner||"Unknown",
+    ownerRole:x.owner_role||"",
+    created:x.created_at
+      ?new Date(x.created_at).toLocaleString("en-IN")
+      :"—"
+  }));
+
+  async function up(e){
+    const file=e.target.files?.[0];
+
+    if(!file) return;
+
+    setError("");
+
+    try{
+      await api.upload(file);
+      await load(1);
+      setPage(1);
+    }catch(err){
+      setError(err.message||"Document upload failed");
+    }finally{
+      e.target.value="";
+    }
+  }
+
+  function previewDocument(id){
+    const token=localStorage.getItem("agis_access");
+    const url=api.documentPreview(id);
+
+    fetch(url,{
+      headers:token
+        ?{Authorization:`Bearer ${token}`}
+        :{}
+    })
+      .then(async r=>{
+        if(!r.ok){
+          throw Error(
+            (await r.json().catch(()=>({detail:"Preview failed"}))).detail
+            ||"Preview failed"
+          );
+        }
+
+        const blob=await r.blob();
+        const objectUrl=URL.createObjectURL(blob);
+        window.open(objectUrl,"_blank","noopener,noreferrer");
+
+        setTimeout(()=>{
+          URL.revokeObjectURL(objectUrl);
+        },60000);
+      })
+      .catch(e=>{
+        setError(e.message||"Unable to preview document");
+      });
+  }
+
+  async function reprocessDocument(id){
+    setError("");
+
+    try{
+      await api.reprocessDocument(id);
+      await load(meta.page);
+    }catch(e){
+      setError(e.message||"Unable to reprocess document");
+    }
+  }
+
+  async function deleteDocument(id,name){
+    if(!window.confirm(`Delete "${name}"? This action cannot be undone.`)){
+      return;
+    }
+
+    setError("");
+
+    try{
+      await api.deleteDocument(id);
+
+      const nextPage=
+        d.length===1 && meta.page>1
+          ?meta.page-1
+          :meta.page;
+
+      setPage(nextPage);
+      await load(nextPage);
+    }catch(e){
+      setError(e.message||"Unable to delete document");
+    }
+  }
+
+  const totalPages=meta.pages||0;
+  const from=meta.total===0
+    ?0
+    :(meta.page-1)*meta.page_size+1;
+  const to=Math.min(
+    meta.page*meta.page_size,
+    meta.total
+  );
+
+  return <>
+
+    <PageTitle
+      title="Documents"
+      sub="Manage and organize organizational content for secure GenAI transformation."
+      actions={
+        <label className="btn primary">
+          <Plus size={17}/>
+          Upload Document
+          <input
+            hidden
+            type="file"
+            accept=".pdf,.docx,.xlsx"
+            onChange={up}
+          />
+        </label>
+      }
+    />
+
+    <Card>
+
+      <Toolbar searchText="Search documents...">
+        <input
+          className="search-input"
+          placeholder="Search documents..."
+          value={search}
+          onChange={e=>{
+            setSearch(e.target.value);
+            setPage(1);
+          }}
+        />
+
+        <select
+          className="select-field"
+          value={status}
+          onChange={e=>{
+            setStatus(e.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="">All Status</option>
+          <option value="ready">Ready</option>
+          <option value="queued">Queued</option>
+          <option value="processing">Processing</option>
+          <option value="failed">Failed</option>
+        </select>
+
+        <select
+          className="select-field"
+          value={type}
+          onChange={e=>{
+            setType(e.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="">All Types</option>
+          <option value="pdf">PDF</option>
+          <option value="docx">DOCX</option>
+          <option value="xlsx">XLSX</option>
+        </select>
+
+      </Toolbar>
+
+      {error&&(
+        <div className="notice">
+          <ShieldCheck size={19}/>
+          <div>
+            <b>Unable to load documents</b>
+            <span>{error}</span>
+          </div>
+        </div>
+      )}
+
+      <Table>
+        <thead>
+          <tr>
+            <th>Document</th>
+            <th>Type</th>
+            <th>Status</th>
+            <th>Owner</th>
+            <th>Created</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+
+        <tbody>
+
+          {loading&&(
+            <tr>
+              <td colSpan="6">Loading documents...</td>
+            </tr>
+          )}
+
+          {!loading&&!rows.length&&(
+            <tr>
+              <td colSpan="6">No documents found.</td>
+            </tr>
+          )}
+
+          {!loading&&rows.map(x=>
+            <tr key={x.id}>
+
+              <td>
+                <div className="doc-cell">
+                  <IconBox tone={x.type.toLowerCase()}>
+                    <FileText size={17}/>
+                  </IconBox>
+
+                  <div>
+                    <b>{x.name}</b>
+                    <span>{x.size}</span>
+                  </div>
+                </div>
+              </td>
+
+              <td>
+                <Badge tone={x.type.toLowerCase()}>
+                  {x.type}
+                </Badge>
+              </td>
+
+              <td>
+                <Badge>{x.status}</Badge>
+              </td>
+
+              <td>
+                <span className="owner">
+                  <span>
+                    {(x.owner||"U").slice(0,2).toUpperCase()}
+                  </span>
+                  {x.owner}
+                </span>
+              </td>
+
+              <td>{x.created}</td>
+
+              <td className="row-actions">
+                <button
+                  type="button"
+                  title="Preview"
+                  onClick={()=>previewDocument(x.id)}
+                >
+                  <Eye size={15}/>
+                </button>
+
+                <button
+                  type="button"
+                  title="Reprocess"
+                  onClick={()=>reprocessDocument(x.id)}
+                >
+                  <RefreshCw size={15}/>
+                </button>
+
+                <button
+                  type="button"
+                  title="Delete"
+                  onClick={()=>deleteDocument(x.id,x.name)}
+                >
+                  <MoreVertical size={16}/>
+                </button>
+              </td>
+
+            </tr>
+          )}
+
+        </tbody>
+      </Table>
+
+      <div className="table-foot">
+        <span>
+          Showing {from} to {to} of {meta.total} documents
+        </span>
+
+        <div className="pager">
+
+          <button
+            disabled={meta.page<=1}
+            onClick={()=>{
+              const next=meta.page-1;
+              setPage(next);
+              load(next);
+            }}
+          >
+            <ChevronLeft size={15}/>
+          </button>
+
+          {Array.from(
+            {length:totalPages},
+            (_,i)=>i+1
+          ).slice(0,5).map(n=>
+            <button
+              key={n}
+              className={meta.page===n?"active":""}
+              onClick={()=>{
+                setPage(n);
+                load(n);
+              }}
+            >
+              {n}
+            </button>
+          )}
+
+          <button
+            disabled={
+              totalPages===0 ||
+              meta.page>=totalPages
+            }
+            onClick={()=>{
+              const next=meta.page+1;
+              setPage(next);
+              load(next);
+            }}
+          >
+            <ChevronRight size={15}/>
+          </button>
+
+        </div>
+      </div>
+
+    </Card>
+
+    <div className="notice">
+      <ShieldCheck size={19}/>
+      <div>
+        <b>Secure. Controlled. Compliant.</b>
+        <span>
+          All documents are encrypted and access is controlled based on your role permissions.
+        </span>
+      </div>
+      <a href="#">
+        Learn more <ExternalLink size={13}/>
+      </a>
+    </div>
+
+  </>
+}
 function Pager(){return <div className="pager"><button><ChevronLeft size={15}/></button><button className="active">1</button><button>2</button><button>3</button><span>…</span><button>5</button><button><ChevronRight size={15}/></button></div>}
 
 function NewTransformation(){const[d,setD]=useState(docsMock),[selected,setSelected]=useState(1),[type,setType]=useState("Executive Summary"),n=useNavigate();useEffect(() => {
@@ -651,9 +1025,10 @@ function NewTransformation(){const[d,setD]=useState(docsMock),[selected,setSelec
 
   api.documents()
     .then(r => {
-      if (!alive || !r.length) return;
+      const items = r?.items || [];
+      if (!alive || !items.length) return;
 
-      setD(r.map(x => ({
+      setD(items.map(x => ({
         id: x.id,
         name: x.name,
         type: x.mime_type?.includes("word")

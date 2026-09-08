@@ -9,3 +9,9 @@ def ensure_bucket():
 def put_object(key,path,content_type):
     with open(path,"rb") as f:client.upload_fileobj(f,settings.s3_bucket,key,ExtraArgs={"ContentType":content_type})
 def get_object(key,target):client.download_file(settings.s3_bucket,key,target)
+
+def delete_object(key):
+    client.delete_object(
+        Bucket=settings.s3_bucket,
+        Key=key,
+    )

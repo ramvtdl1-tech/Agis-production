@@ -10,11 +10,37 @@ celery_app=Celery("agis",broker=settings.redis_url,backend=settings.redis_url)
 @celery_app.task(bind=True,autoretry_for=(Exception,),retry_backoff=True,max_retries=3)
 def extract_document(self,doc_id):
     db=SessionLocal()
+    d=None
+
     try:
-        d=db.get(Document,doc_id);tmp=f"/tmp/agis-{d.id}-{d.name}"
-        get_object(d.object_key,tmp);d.extracted_text=extract(tmp,d.mime_type)
-        d.extraction_status="Complete";db.commit()
-    finally:db.close()
+        d=db.get(Document,doc_id)
+
+        if not d:
+            raise RuntimeError("Document not found")
+
+        d.extraction_status="Processing"
+        db.commit()
+
+        tmp=f"/tmp/agis-{d.id}-{d.name}"
+
+        get_object(d.object_key,tmp)
+
+        d.extracted_text=extract(
+            tmp,
+            d.mime_type,
+        )
+
+        d.extraction_status="Complete"
+        db.commit()
+
+    except Exception:
+        if d:
+            d.extraction_status="Failed"
+            db.commit()
+        raise
+
+    finally:
+        db.close()
 
 @celery_app.task(bind=True,autoretry_for=(Exception,),retry_backoff=True,max_retries=3)
 def generate_transformation(self,tid):
