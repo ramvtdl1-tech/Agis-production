@@ -797,49 +797,49 @@ def dashboard(
     ),
     db: Session = Depends(get_db),
 ):
+    recent_transformations = (
+        db.query(
+            Transformation,
+            Document.name.label("document_name"),
+        )
+        .join(
+            Document,
+            Transformation.document_id == Document.id,
+        )
+        .order_by(
+            Transformation.created_at.desc()
+        )
+        .limit(8)
+        .all()
+    )
+
     return {
         "counts": {
-            "documents": db.query(
-                Document
+            "documents": db.query(Document).count(),
+
+            "processed": db.query(Document).filter(
+                Document.extraction_status == "Complete"
             ).count(),
 
-            "processed": db.query(
-                Document
-            ).filter(
-                Document.extraction_status
-                == "Complete"
+            "for_review": db.query(Transformation).filter(
+                Transformation.status == "Ready for Review"
             ).count(),
 
-            "for_review": db.query(
-                Transformation
-            ).filter(
-                Transformation.status
-                == "Ready for Review"
-            ).count(),
-
-            "approved": db.query(
-                Transformation
-            ).filter(
-                Transformation.status
-                == "Approved"
+            "approved": db.query(Transformation).filter(
+                Transformation.status == "Approved"
             ).count(),
         },
 
         "recent": [
             {
-                "id": x.id,
-                "name": x.name,
-                "status": x.status,
-                "created_at": x.created_at.isoformat(),
+                "id": transformation.id,
+                "document_id": transformation.document_id,
+                "name": document_name,
+                "output_type": transformation.output_type,
+                "status": transformation.status,
+                "created_at": transformation.created_at.isoformat(),
             }
-
-            for x in db.query(
-                Document
-            )
-            .order_by(
-                Document.created_at.desc()
-            )
-            .limit(8)
+            for transformation, document_name in recent_transformations
         ],
     }
 
