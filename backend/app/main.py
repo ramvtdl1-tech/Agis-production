@@ -1236,26 +1236,35 @@ def logs(
 
     db: Session = Depends(get_db),
 ):
-    return [
-        {
-            "id": x.id,
-            "timestamp": x.timestamp.isoformat(),
-            "role": x.role,
-            "action": x.action,
-            "resource": x.resource,
-            "details": x.details,
-            "ip_address": x.ip_address,
-        }
-
-        for x in db.query(
-            AuditLog
-        )
-        .order_by(
-            AuditLog.timestamp.desc()
-        )
+    audit_logs = (
+        db.query(AuditLog)
+        .order_by(AuditLog.timestamp.desc())
         .limit(500)
         .all()
-    ]
+    )
+
+    result = []
+
+    for x in audit_logs:
+        audit_user = db.get(User, x.user_id) if x.user_id else None
+
+        result.append(
+            {
+                "id": x.id,
+                "timestamp": x.timestamp.isoformat(),
+                "user_id": x.user_id,
+                "user": audit_user.name if audit_user else "System",
+                "username": audit_user.username if audit_user else "",
+                "email": audit_user.email if audit_user else "",
+                "role": x.role,
+                "action": x.action,
+                "resource": x.resource,
+                "details": x.details,
+                "ip_address": x.ip_address,
+            }
+        )
+
+    return result
 
 
 # =========================================================
