@@ -591,7 +591,7 @@ function Register({back}){
   );
 }
 
-function Dashboard(){
+function Dashboard({user}){
   const[d,setD]=useState(null);
 
   useEffect(() => {
@@ -1873,7 +1873,7 @@ function App(){const visual=new URLSearchParams(window.location.search).has("vis
   };
 }, [visual]);if(!user)return showRegister
   ? <Register back={()=>setShowRegister(false)}/>
-  : <Login done={setUser} showRegister={()=>setShowRegister(true)}/>;return <Shell user={user}><Routes><Route path="/" element={<Dashboard/>}/><Route path="/dashboard" element={<Dashboard/>}/><Route path="/documents" element={<Documents/>}/><Route path="/profile" element={<ProfilePage user={user}/>}/><Route path="/transformations" element={<Transformations/>}/><Route path="/transformations/new" element={<NewTransformation/>}/><Route path="/transformations/config" element={<Configuration/>}/><Route path="/transformations/:id" element={<Output/>}/><Route path="/transformations/:id/review" element={<RoleGate user={user} roles={["Reviewer","Approver","Administrator"]}><Review/></RoleGate>}/><Route path="/audit-logs" element={<AuditLogs/>}/><Route path="/users" element={<RoleGate user={user} roles={["Administrator"]}><UsersPage/></RoleGate>}/><Route path="/roles" element={<RoleGate user={user} roles={["Administrator"]}><RolesPage/></RoleGate>}/><Route path="/system" element={<RoleGate user={user} roles={["Administrator"]}><SystemPage/></RoleGate>}/><Route path="/templates" element={<RoleGate user={user} roles={["Administrator"]}><TemplatesPage/></RoleGate>}/><Route path="*" element={<Dashboard/>}/></Routes></Shell>}
+  : <Login done={setUser} showRegister={()=>setShowRegister(true)}/>;return <Shell user={user}><Routes><Route path="/" element={<Dashboard user={user}/>}/><Route path="/dashboard" element={<Dashboard user={user}/>}/><Route path="/documents" element={<Documents/>}/><Route path="/profile" element={<ProfilePage user={user}/>}/><Route path="/transformations" element={<Transformations/>}/><Route path="/transformations/new" element={<NewTransformation/>}/><Route path="/transformations/config" element={<Configuration/>}/><Route path="/transformations/:id" element={<Output/>}/><Route path="/transformations/:id/review" element={<RoleGate user={user} roles={["Reviewer","Approver","Administrator"]}><Review/></RoleGate>}/><Route path="/audit-logs" element={<AuditLogs/>}/><Route path="/users" element={<RoleGate user={user} roles={["Administrator"]}><UsersPage/></RoleGate>}/><Route path="/roles" element={<RoleGate user={user} roles={["Administrator"]}><RolesPage/></RoleGate>}/><Route path="/system" element={<RoleGate user={user} roles={["Administrator"]}><SystemPage/></RoleGate>}/><Route path="/templates" element={<RoleGate user={user} roles={["Administrator"]}><TemplatesPage/></RoleGate>}/><Route path="*" element={<Dashboard/>}/></Routes></Shell>}
 createRoot(document.getElementById("root")).render(<BrowserRouter><App/></BrowserRouter>);
 
 
