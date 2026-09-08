@@ -35,6 +35,24 @@ function PageTitle({title,sub,actions,crumb}){return <div className="page-title"
 function Stepper({step}){return <div className="stepper">{[[1,"Select Source"],[2,"Configure"],[3,"Review"]].map(([n,l],i)=><React.Fragment key={n}><div className={`step ${step>=n?"done":""} ${step===n?"current":""}`}><span>{step>n?<CheckCircle2 size={15}/>:n}</span><b>{l}</b></div>{i<2&&<div className={`step-line ${step>n?"done":""}`}/>}</React.Fragment>)}</div>}
 
 function Sidebar({user}){const main=[["/dashboard","Dashboard",Home],["/documents","Documents",FileText],["/transformations","Transformations",RefreshCw],["/audit-logs","Audit Logs",Workflow]];const admin=[["/users","User Management",Users],["/roles","Roles & Permissions",ShieldCheck],["/system","System Configuration",SlidersHorizontal],["/templates","Template Management",FileCog]];return <aside className="sidebar"><div className="brand"><div className="brand-mark"><Shield size={18}/></div><div><strong>AGIS</strong><span>Adaptive GenAI<br/>Intelligence System</span></div></div><nav><div className="nav-label">Workspace</div>{main.map(([to,label,I])=><NavLink key={to} to={to} className={({isActive})=>`nav-item ${isActive?"active":""}`}><I size={16}/><span>{label}</span></NavLink>)}<div className="nav-label admin-label">Settings</div>{user?.role==="Administrator"&&admin.map(([to,label,I])=><NavLink key={to} to={to} className={({isActive})=>`nav-item sub ${isActive?"active":""}`}><I size={15}/><span>{label}</span></NavLink>)}</nav><div className="secure-box"><ShieldCheck size={16}/><div><b>Secure. Controlled. Reliable.</b><span>All content is encrypted and access is role-based.</span></div></div></aside>}
+const RoleAvatar=({user,className=""})=>{
+  const role=user?.role||"Operator";
+
+  if(role==="Administrator"){
+    return <div className={`avatar ${className}`}><ShieldCheck size={17}/></div>;
+  }
+
+  if(role==="Reviewer"){
+    return <div className={`avatar ${className}`}><Eye size={17}/></div>;
+  }
+
+  if(role==="Operator"){
+    return <div className={`avatar ${className}`}><Workflow size={17}/></div>;
+  }
+
+  return <div className={`avatar ${className}`}><UserRound size={17}/></div>;
+};
+
 function Topbar({user}){
   const [profileOpen,setProfileOpen]=useState(false);
   const [notificationsOpen,setNotificationsOpen]=useState(false);
@@ -115,9 +133,7 @@ function Topbar({user}){
               setNotificationsOpen(false);
             }}
           >
-            <div className="avatar">
-              <UserRound size={17}/>
-            </div>
+            <RoleAvatar user={user}/>
 
             <div>
               <b>{user?.name||"Operator"}</b>
@@ -136,9 +152,7 @@ function Topbar({user}){
             <div className="profile-menu">
 
               <div className="profile-menu-user">
-                <div className="avatar large">
-                  <UserRound size={19}/>
-                </div>
+                <RoleAvatar user={user} className="large"/>
 
                 <div>
                   <b>{user?.name||"Operator"}</b>
