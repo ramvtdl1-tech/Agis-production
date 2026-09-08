@@ -742,8 +742,15 @@ function UsersPage(){
     setError("");
 
     try{
-      await api.approveUser(userId,action);
-      await loadUsers();
+      if(action==="approve"){
+        const result=await api.requestApprovalOTP(userId);
+        window.alert(
+          `Approval OTP sent to the Reviewer's registered email.\n\nChallenge ID: ${result.challenge_id}\n\nThe Reviewer must enter this OTP to complete approval.`
+        );
+      }else{
+        await api.approveUser(userId,action);
+        await loadUsers();
+      }
     }catch(e){
       setError(e.message||"Approval request failed");
     }finally{
@@ -923,7 +930,7 @@ function UsersPage(){
                           disabled={busy===u.id}
                         >
                           <CheckCircle2 size={14}/>
-                          {busy===u.id?"Processing...":"Approve"}
+                          {busy===u.id?"Sending OTP...":"Send Approval OTP"}
                         </Button>
 
                         <Button
@@ -1381,9 +1388,178 @@ function ProfilePage({user}){
   );
 }
 
+function ApprovalVerification(){
+  const params=new URLSearchParams(window.location.search);
+  const initialChallenge=params.get("challenge")||"";
+
+  const [challengeId,setChallengeId]=useState(initialChallenge);
+  const [code,setCode]=useState(["","","","","",""]);
+  const [err,setErr]=useState("");
+  const [success,setSuccess]=useState(false);
+  const [busy,setBusy]=useState(false);
+
+  const submit=async e=>{
+    e.preventDefault();
+    setErr("");
+
+    if(!challengeId){
+      setErr("Approval challenge ID is required.");
+      return;
+    }
+
+    const otp=code.join("");
+
+    if(otp.length!==6){
+      setErr("Please enter the 6-digit approval OTP.");
+      return;
+    }
+
+    setBusy(true);
+
+    try{
+      await api.verifyApprovalOTP(challengeId,otp);
+      setSuccess(true);
+    }catch(x){
+      setErr(x.message||"Approval verification failed");
+    }finally{
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="login-page">
+
+      <div className="login-hero">
+        <div className="hero-inner">
+
+          <div className="hero-brand">
+            <strong>AGIS</strong>
+            <span>Adaptive GenAI Intelligence System</span>
+          </div>
+
+          <div className="hero-sub">
+            Secure Account Approval
+          </div>
+
+          <div className="hero-line"/>
+
+          <div className="shield-visual">
+            <ShieldCheck size={112}/>
+            <LockKeyhole className="lock" size={58}/>
+          </div>
+
+        </div>
+      </div>
+
+      <div className="login-panel">
+
+        <form className="login-card" onSubmit={submit}>
+
+          <div className="login-icon">
+            <ShieldCheck size={30}/>
+          </div>
+
+          <h1>
+            {success ? "Account approved" : "Verify account approval"}
+          </h1>
+
+          {success ? (
+            <>
+              <p>
+                Your Reviewer account has been approved and activated by an Administrator.
+              </p>
+
+              <div className="success-banner mini">
+                <CheckCircle2 size={16}/>
+                <span>You can now sign in to AGIS using your Reviewer account.</span>
+              </div>
+
+              <Button
+                type="button"
+                className="login-btn"
+                onClick={()=>window.location.href="/"}
+              >
+                <LogIn size={17}/>
+                Go to Login
+              </Button>
+            </>
+          ) : (
+            <>
+              <p>
+                Enter the approval OTP sent to your registered email.
+              </p>
+
+              {!initialChallenge && (
+                <label>
+                  Challenge ID
+                  <div className="input-wrap">
+                    <KeyRound size={17}/>
+                    <input
+                      value={challengeId}
+                      onChange={e=>setChallengeId(e.target.value)}
+                      placeholder="Enter challenge ID"
+                    />
+                  </div>
+                </label>
+              )}
+
+              <div className="otp-block">
+
+                <b>Enter Approval OTP</b>
+
+                <div className="otp-row">
+                  {code.map((v,i)=>(
+                    <input
+                      key={i}
+                      maxLength="1"
+                      autoFocus={i===0}
+                      value={v}
+                      onChange={e=>{
+                        const a=[...code];
+                        a[i]=e.target.value.replace(/\D/g,"");
+                        setCode(a);
+
+                        if(a[i] && i<5){
+                          e.target.nextElementSibling?.focus();
+                        }
+                      }}
+                    />
+                  ))}
+                </div>
+
+                <div className="otp-meta">
+                  <span>
+                    OTP sent to your registered email
+                  </span>
+                </div>
+
+              </div>
+
+              {err && (
+                <div className="error">
+                  {err}
+                </div>
+              )}
+
+              <Button className="login-btn" disabled={busy}>
+                <ShieldCheck size={17}/>
+                {busy ? "Verifying..." : "Verify Approval"}
+              </Button>
+            </>
+          )}
+
+        </form>
+
+      </div>
+
+    </div>
+  );
+}
+
 function RoleGate({user,roles,children}){if(!roles.includes(user?.role))return <Card><h2>Access Restricted</h2><p className="section-sub">Your role does not have permission to view this module.</p></Card>;return children}
 function App(){const visual=new URLSearchParams(window.location.search).has("visual");if(window.location.pathname==="/__visual/login")
-  return <Login done={()=>{}} showRegister={()=>{}}/>;const[user,setUser]=useState(visual?VISUAL_TEST_USER:null),[showRegister,setShowRegister]=useState(false);useEffect(() => {
+  return <Login done={()=>{}} showRegister={()=>{}}/>;if(window.location.pathname==="/approval")
+  return <ApprovalVerification/>;const[user,setUser]=useState(visual?VISUAL_TEST_USER:null),[showRegister,setShowRegister]=useState(false);useEffect(() => {
   let alive = true;
 
   if (!visual && localStorage.agis_access) {

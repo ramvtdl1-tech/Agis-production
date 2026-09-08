@@ -27,6 +27,20 @@ approveUser:(userId,action)=>req(`/users/${userId}/approval`,{
   method:"POST",
   body:JSON.stringify({action})
 }),
+requestApprovalOTP:(userId)=>req(`/users/${userId}/approval/request`,{
+  method:"POST",
+  body:JSON.stringify({
+    user_id:userId,
+    channel:"email"
+  })
+}),
+verifyApprovalOTP:(challengeId,code)=>req("/auth/approval/verify",{
+  method:"POST",
+  body:JSON.stringify({
+    challenge_id:Number(challengeId),
+    code
+  })
+}),
 roles:()=>req("/roles"),
 templates:()=>req("/templates")
 };
