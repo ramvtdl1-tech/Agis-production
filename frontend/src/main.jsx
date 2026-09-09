@@ -2506,24 +2506,253 @@ function SystemPage(){return <><PageTitle title="System Configuration" sub="Conf
 
 function TemplatesPage(){return <><PageTitle title="Template Management" sub="Create, manage, and organize templates for content transformation." actions={<Button><Plus size={16}/>Create Template</Button>}/><div className="tabs"><b>Templates</b><span>Categories</span></div><div className="stat-grid four">{[["Total Templates","48",FileText,"blue"],["Active Templates","36",CheckCircle2,"green"],["Draft Templates","6",Clock3,"amber"],["Archived Templates","6",Archive,"purple"]].map(([l,n,I,t])=><Card className="mini-stat" key={l}><IconBox tone={t}><I size={18}/></IconBox><div><span>{l}</span><strong>{n}</strong><small>{l==="Total Templates"?"All templates in system":l==="Active Templates"?"Currently available":l==="Draft Templates"?"In draft":"Not in use"}</small></div></Card>)}</div><div className="content-grid template-layout"><Card><Toolbar searchText="Search templates by name, category or tag..."><Button variant="select">All Categories <ChevronDown size={13}/></Button><Button variant="select">All Status <ChevronDown size={13}/></Button><Button variant="select">All Created By <ChevronDown size={13}/></Button><Button variant="select"><Filter size={14}/> Filters</Button></Toolbar><Table><thead><tr><th>Template Name</th><th>Category</th><th>Output Type</th><th>Audience</th><th>Status</th><th>Version</th><th>Updated On</th><th>Actions</th></tr></thead><tbody>{[["Executive Summary Template","Reports","Executive Summary","Leadership","Active","v2.1","24 May 2025, 11:30 AM"],["Technical Brief Template","Briefs","Technical Brief","Technical Team","Active","v1.4","23 May 2025, 04:15 PM"],["Intelligence Note Template","Notes","Intelligence Note","Analyst","Draft","v0.9","22 May 2025, 10:05 AM"],["Situation Report Template","Reports","Situation Report","Leadership","Active","v3.0","21 May 2025, 09:20 AM"],["Operational Update Template","Updates","Operational Update","Operations Team","Active","v1.2","20 May 2025, 02:45 PM"],["Quick Summary Template","Summaries","Summary","Analyst","Active","v1.1","19 May 2025, 11:10 AM"],["Custom Narrative Template","Narratives","Narrative","General","Archived","v1.0","10 May 2025, 05:30 PM"],["Presentation Deck Template","Presentations","Presentation","Leadership","Draft","v0.8","08 May 2025, 03:25 PM"]].map((r,i)=><tr key={i}><td><div className="doc-cell"><IconBox tone={i%2?"purple":"green"}><FileText size={15}/></IconBox><div><b>{r[0]}</b><span>{i===0?"Standard executive summary format":i===1?"Detailed technical brief structure":"Structured template"}</span></div></div></td><td><Badge tone="role">{r[1]}</Badge></td><td>{r[2]}</td><td>{r[3]}</td><td><Badge tone={r[4].toLowerCase()}>{r[4]}</Badge></td><td>{r[5]}</td><td>{r[6]}</td><td><MoreVertical size={16}/></td></tr>)}</tbody></Table><div className="table-foot"><span>Showing 1 to 8 of 48 templates</span><Pager/></div></Card><Card className="template-preview"><h3>Template Preview</h3><Badge tone="green">Active</Badge> <Badge tone="blue">v2.1</Badge><h3>Executive Summary Template</h3><p>Standard executive summary format</p>{[["Category","Reports"],["Output Type","Executive Summary"],["Target Audience","Leadership"],["Description","A structured template for executive summaries with key highlights, context, analysis and recommendations."]].map(([l,v])=><div className="preview-field" key={l}><span>{l}</span><b>{v}</b></div>)}<div className="tags"><span>summary</span><span>executive</span><span>standard</span><span>leadership</span></div><div className="preview-updated"><CalendarDays size={14}/>24 May 2025, 11:30 AM<br/><span>by Administrator</span></div><div className="form-actions"><Button variant="secondary"><Eye size={14}/>Preview Template</Button><Button><Edit3 size={14}/>Edit Template</Button></div></Card></div><div className="notice"><Info size={18}/><span>Templates ensure consistency and quality across all transformations.</span></div></>}
 
-function AuditLogs(){const[logs,setLogs]=useState([]);useEffect(() => {
-  let alive = true;
+function AuditLogs(){
+  const [logs,setLogs]=useState([]);
+  const [selectedLog,setSelectedLog]=useState(null);
+  const [loading,setLoading]=useState(true);
 
-  const loadLogs = async () => {
-    try {
-      const data = await api.logs();
-      if (alive) setLogs(data);
-    } catch (e) {
-      // Keep mock logs
-    }
+  useEffect(()=>{
+    let alive=true;
+
+    api.auditLogs()
+      .then(data=>{
+        if(!alive) return;
+
+        const items=Array.isArray(data)?data:[];
+
+        setLogs(items);
+        setSelectedLog(items[0]||null);
+      })
+      .catch(err=>{
+        console.error("Failed to load audit logs:",err);
+        if(alive){
+          setLogs([]);
+          setSelectedLog(null);
+        }
+      })
+      .finally(()=>{
+        if(alive) setLoading(false);
+      });
+
+    return ()=>{alive=false};
+  },[]);
+
+  const totalActivities=logs.length;
+
+  const uniqueUsers=new Set(
+    logs
+      .map(x=>x.user_id)
+      .filter(x=>x!==null && x!==undefined)
+  ).size;
+
+  const successfulActions=logs.filter(x=>{
+    const text=`${x.action||""} ${x.details||""}`.toLowerCase();
+
+    return !(
+      text.includes("fail") ||
+      text.includes("invalid") ||
+      text.includes("denied") ||
+      text.includes("error") ||
+      text.includes("reject")
+    );
+  }).length;
+
+  const failedActions=logs.filter(x=>{
+    const text=`${x.action||""} ${x.details||""}`.toLowerCase();
+
+    return (
+      text.includes("fail") ||
+      text.includes("invalid") ||
+      text.includes("denied") ||
+      text.includes("error") ||
+      text.includes("reject")
+    );
+  }).length;
+
+  const formatTime=(value)=>{
+    if(!value) return "—";
+
+    const d=new Date(value);
+
+    if(Number.isNaN(d.getTime())) return value;
+
+    return d.toLocaleString([],{
+      dateStyle:"medium",
+      timeStyle:"short"
+    });
   };
 
-  loadLogs();
+  const rows=logs;
 
-  return () => {
-    alive = false;
-  };
-}, []);const rows=logs.length?logs:[{id:1,timestamp:"24 May 2025, 11:46 AM",user:"Rohit Sharma",role:"Reviewer",action:"Reviewed Output",resource:"Executive Summary",details:"Approved",ip_address:"10.10.5.23"},{id:2,timestamp:"24 May 2025, 11:45 AM",user:"Ram Verma",role:"Operator",action:"Generated Output",resource:"Executive Summary",details:"Output generated successfully",ip_address:"10.10.5.23"},{id:3,timestamp:"24 May 2025, 11:45 AM",user:"Ram Verma",role:"Operator",action:"Created Transformation",resource:"Situation Report.pdf",details:"Executive Summary",ip_address:"10.10.5.23"},{id:4,timestamp:"24 May 2025, 10:15 AM",user:"Admin User",role:"Administrator",action:"User Role Updated",resource:"Rohit Sharma",details:"Role changed to Reviewer",ip_address:"10.10.5.10"},{id:5,timestamp:"23 May 2025, 04:20 PM",user:"Rohit Sharma",role:"Reviewer",action:"Requested Changes",resource:"Executive Summary",details:"Changes requested by reviewer",ip_address:"10.10.5.23"}];return <><PageTitle title="Audit Logs" sub="Track and review all system activities." actions={<Button variant="secondary"><Download size={15}/>Export Logs</Button>}/><div className="content-grid audit-layout"><Card><Toolbar searchText="Search by action, user, document..."><Button variant="select"><CalendarDays size={14}/>19 May 2025 - 25 May 2025 <ChevronDown size={13}/></Button><Button variant="select">All Roles <ChevronDown size={13}/></Button><Button variant="select">All Actions <ChevronDown size={13}/></Button><Button variant="select"><Filter size={14}/> Filters</Button></Toolbar><Table><thead><tr><th>Time</th><th>User</th><th>Role</th><th>Action</th><th>Resource</th><th>Details</th><th>IP Address</th></tr></thead><tbody>{rows.map((x,i)=><tr key={i}><td>{x.timestamp}</td><td><div className="user-cell"><span>{String(x.user||"A")[0]}</span><div><b>{x.user||"—"}</b><small>{x.email||"user@agis.gov.in"}</small></div></div></td><td><Badge tone="role">{x.role}</Badge></td><td>{x.action}</td><td>{x.resource}</td><td>{x.details}</td><td>{x.ip_address}</td></tr>)}</tbody></Table><div className="table-foot"><span>Showing 1 to 8 of 128 entries</span><Pager/></div></Card><div className="side-stack"><Card><h3>Log Details</h3>{[[Clock3,"Time","24 May 2025, 11:46 AM"],[UserRound,"User","Rohit Sharma"],[Shield,"Role","Reviewer"],[Workflow,"Action","Reviewed Output"],[FileText,"Resource","Executive Summary / Situation Report.pdf"],[Info,"Details","Approved"],[Database,"IP Address","10.10.5.23"],[KeyRound,"Session ID","a1b2c3d4e5f6g7h8"]].map(([I,l,v])=><div className="summary-row" key={l}><I size={15}/><div><span>{l}</span><b>{v}</b></div></div>)}</Card><Card><h3>Summary (This Period)</h3>{[["Total Activities","128"],["Unique Users","12"],["Successful Actions","118"],["Failed Actions","0"]].map(([l,v])=><div className="period-row" key={l}><span>{l}</span><b>{v}</b></div>)}<a className="blue-link">View Analytics <ArrowRight size={13}/></a></Card><div className="notice compact"><ShieldCheck size={18}/><span>All activities are securely logged and tamper-protected.</span></div></div></div></>}
+  return <>
+    <PageTitle
+      title="Audit Logs"
+      sub="Track and review all system activities."
+      actions={
+        <Button variant="secondary">
+          <Download size={15}/>
+          Export Logs
+        </Button>
+      }
+    />
+
+    <div className="content-grid audit-layout">
+
+      <Card>
+        <Toolbar searchText="Search by action, user, document...">
+          <Button variant="select">
+            <CalendarDays size={14}/>
+            All Activity
+            <ChevronDown size={13}/>
+          </Button>
+
+          <Button variant="select">
+            All Roles
+            <ChevronDown size={13}/>
+          </Button>
+
+          <Button variant="select">
+            All Actions
+            <ChevronDown size={13}/>
+          </Button>
+
+          <Button variant="select">
+            <Filter size={14}/>
+            Filters
+          </Button>
+        </Toolbar>
+
+        <Table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>User</th>
+              <th>Role</th>
+              <th>Action</th>
+              <th>Resource</th>
+              <th>Details</th>
+              <th>IP Address</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {loading ? (
+              <tr>
+                <td colSpan="7">Loading audit logs...</td>
+              </tr>
+            ) : rows.length===0 ? (
+              <tr>
+                <td colSpan="7">No audit activity found.</td>
+              </tr>
+            ) : (
+              rows.map((x,i)=>(
+                <tr
+                  key={x.id||i}
+                  onClick={()=>setSelectedLog(x)}
+                  style={{cursor:"pointer"}}
+                >
+                  <td>{formatTime(x.timestamp)}</td>
+
+                  <td>
+                    <div className="user-cell">
+                      <span>{String(x.user||"S")[0]}</span>
+                      <div>
+                        <b>{x.user||"System"}</b>
+                        <small>{x.email||"—"}</small>
+                      </div>
+                    </div>
+                  </td>
+
+                  <td>
+                    <Badge tone="role">{x.role||"System"}</Badge>
+                  </td>
+
+                  <td>{x.action||"—"}</td>
+                  <td>{x.resource||"—"}</td>
+                  <td>{x.details||"—"}</td>
+                  <td>{x.ip_address||"—"}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </Table>
+
+        <div className="table-foot">
+          <span>
+            {loading
+              ? "Loading..."
+              : `Showing ${rows.length} audit entr${rows.length===1?"y":"ies"}`
+            }
+          </span>
+          <Pager/>
+        </div>
+      </Card>
+
+      <div className="side-stack">
+
+        <Card>
+          <h3>Log Details</h3>
+
+          {selectedLog ? (
+            [
+              [Clock3,"Time",formatTime(selectedLog.timestamp)],
+              [UserRound,"User",selectedLog.user||"System"],
+              [Shield,"Role",selectedLog.role||"—"],
+              [Workflow,"Action",selectedLog.action||"—"],
+              [FileText,"Resource",selectedLog.resource||"—"],
+              [Info,"Details",selectedLog.details||"—"],
+              [Database,"IP Address",selectedLog.ip_address||"—"]
+            ].map(([I,l,v])=>(
+              <div className="summary-row" key={l}>
+                <I size={15}/>
+                <div>
+                  <span>{l}</span>
+                  <b>{v}</b>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="summary-row">
+              <Info size={15}/>
+              <div>
+                <span>Log</span>
+                <b>No audit log selected</b>
+              </div>
+            </div>
+          )}
+        </Card>
+
+        <Card>
+          <h3>Summary (This Period)</h3>
+
+          {[
+            ["Total Activities",String(totalActivities)],
+            ["Unique Users",String(uniqueUsers)],
+            ["Successful Actions",String(successfulActions)],
+            ["Failed Actions",String(failedActions)]
+          ].map(([l,v])=>(
+            <div className="period-row" key={l}>
+              <span>{l}</span>
+              <b>{v}</b>
+            </div>
+          ))}
+
+          <span className="blue-link">
+            Live database activity <ArrowRight size={13}/>
+          </span>
+        </Card>
+
+        <div className="notice compact">
+          <ShieldCheck size={18}/>
+          <span>
+            Audit activity is loaded from the live AGIS audit log API.
+          </span>
+        </div>
+
+      </div>
+    </div>
+  </>
+}
 
 function Review(){
   const{id}=useParams();
