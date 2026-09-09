@@ -1,7 +1,7 @@
 import base64
 from pathlib import Path
 
-import fitz
+import pymupdf
 from pypdf import PdfReader
 from docx import Document as DocxDocument
 from openpyxl import load_workbook
@@ -32,13 +32,13 @@ def extract_pdf(path):
         base_url=settings.openai_base_url,
     )
 
-    doc = fitz.open(path)
+    doc = pymupdf.open(path)
     pages = []
 
     try:
         for i, page in enumerate(doc):
             pix = page.get_pixmap(
-                matrix=fitz.Matrix(1.5, 1.5),
+                matrix=pymupdf.Matrix(1.5, 1.5),
                 alpha=False,
             )
 
