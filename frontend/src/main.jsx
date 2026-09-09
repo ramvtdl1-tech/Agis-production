@@ -2514,7 +2514,7 @@ function AuditLogs(){
   useEffect(()=>{
     let alive=true;
 
-    api.auditLogs()
+    api.logs()
       .then(data=>{
         if(!alive) return;
 
