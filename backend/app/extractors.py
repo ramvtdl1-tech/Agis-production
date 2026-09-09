@@ -1,6 +1,7 @@
 import base64
 from pathlib import Path
 
+import fitz
 from pypdf import PdfReader
 from docx import Document as DocxDocument
 from openpyxl import load_workbook
@@ -19,44 +20,75 @@ def extract_pdf(path):
     if text:
         return text
 
-    # Fallback for scanned/image-only PDFs.
+    # Scanned/image-only PDF fallback:
+    # render each page to an image and send images to OpenRouter vision.
     if not settings.openai_api_key:
         raise RuntimeError(
             "PDF contains no extractable text and OPENAI_API_KEY is not configured"
         )
 
-    with open(path, "rb") as f:
-        pdf_b64 = base64.b64encode(f.read()).decode("utf-8")
+    client = OpenAI(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
+    )
 
-    client = OpenAI(api_key=settings.openai_api_key)
+    doc = fitz.open(path)
+    pages = []
 
-    response = client.responses.create(
+    try:
+        for i, page in enumerate(doc):
+            pix = page.get_pixmap(
+                matrix=fitz.Matrix(1.5, 1.5),
+                alpha=False,
+            )
+
+            image_b64 = base64.b64encode(pix.tobytes("png")).decode("utf-8")
+
+            pages.append(
+                {
+                    "type": "text",
+                    "text": f"PAGE {i + 1}",
+                }
+            )
+
+            pages.append(
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/png;base64,{image_b64}",
+                    },
+                }
+            )
+    finally:
+        doc.close()
+
+    response = client.chat.completions.create(
         model=settings.openai_model,
-        instructions=(
-            "Extract all readable text from the supplied PDF. "
-            "Return only the document text. Preserve headings, lists, "
-            "tables, names, dates, numbers, and structure as accurately "
-            "as possible. Do not summarize or invent content."
-        ),
-        input=[
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a document extraction system. "
+                    "Extract all readable text from the supplied document pages. "
+                    "Return only the document text. "
+                    "Preserve headings, lists, tables, names, dates, numbers, "
+                    "and structure as accurately as possible. "
+                    "Do not summarize or invent content."
+                ),
+            },
             {
                 "role": "user",
-                "content": [
+                "content": pages + [
                     {
-                        "type": "input_file",
-                        "filename": Path(path).name,
-                        "file_data": f"data:application/pdf;base64,{pdf_b64}",
-                    },
-                    {
-                        "type": "input_text",
-                        "text": "Transcribe the PDF faithfully.",
-                    },
+                        "type": "text",
+                        "text": "Transcribe all pages faithfully.",
+                    }
                 ],
-            }
+            },
         ],
     )
 
-    extracted = (response.output_text or "").strip()
+    extracted = (response.choices[0].message.content or "").strip()
 
     if not extracted:
         raise RuntimeError("PDF OCR/text extraction returned no text")
