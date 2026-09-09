@@ -1990,6 +1990,541 @@ function Transformations(){const[r,setR]=useState([]);useEffect(() => {
 const rows=r.length?r:recentMock.map((x,i)=>({id:i+1,output_type:x.output,status:x.status,created_at:new Date().toISOString()}));return <><PageTitle title="Transformations" sub="Create, configure, validate and review AI-generated outputs." actions={<NavLink className="btn primary" to="/transformations/new"><Plus size={16}/>New Transformation</NavLink>}/><Card><Toolbar searchText="Search transformations..."><Button variant="select">All Status <ChevronDown size={13}/></Button><Button variant="select">All Output Types <ChevronDown size={13}/></Button></Toolbar><Table><thead><tr><th>ID</th><th>Output Type</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>{rows.map(x=><tr key={x.id}><td>#{x.id}</td><td>{x.output_type}</td><td><Badge>{x.status}</Badge></td><td>{new Date(x.created_at).toLocaleString()}</td><td><NavLink to={`/transformations/${x.id}`} className="blue-link"><Eye size={15}/>View</NavLink></td></tr>)}</tbody></Table></Card></>}
 
 
+function UsersPage(){
+  const [users,setUsers]=useState([]);
+  const [tab,setTab]=useState("Users");
+  const [loading,setLoading]=useState(true);
+  const [busy,setBusy]=useState(null);
+  const [error,setError]=useState("");
+
+  const loadUsers=async()=>{
+    setLoading(true);
+    setError("");
+
+    try{
+      const data=await api.users();
+      setUsers(Array.isArray(data)?data:[]);
+    }catch(e){
+      setError(e.message||"Unable to load users");
+    }finally{
+      setLoading(false);
+    }
+  };
+
+  useEffect(()=>{
+    loadUsers();
+  },[]);
+
+  const handleApproval=async(userId,action)=>{
+    setBusy(userId);
+    setError("");
+
+    try{
+      await api.approveUser(userId,action);
+      await loadUsers();
+    }catch(e){
+      setError(e.message||"Approval request failed");
+    }finally{
+      setBusy(null);
+    }
+  };
+
+  const pendingUsers=users.filter(
+    u=>u.approval_status==="Pending"
+  );
+
+  const activeUsers=users.filter(
+    u=>u.active===true
+  );
+
+  const inactiveUsers=users.filter(
+    u=>u.active!==true
+  );
+
+  const roleCounts=users.reduce((acc,u)=>{
+    acc[u.role]=(acc[u.role]||0)+1;
+    return acc;
+  },{});
+
+  return (
+    <>
+      <PageTitle
+        title="User Management"
+        sub="Manage users, roles, and access across the AGIS platform."
+        actions={
+          <Button
+            variant="secondary"
+            onClick={loadUsers}
+            disabled={loading}
+          >
+            <RefreshCw size={15}/>
+            {loading?"Refreshing...":"Refresh"}
+          </Button>
+        }
+      />
+
+      <div className="tabs">
+        <button
+          className={tab==="Users"?"active":""}
+          onClick={()=>setTab("Users")}
+        >
+          Users
+        </button>
+
+        <button
+          className={tab==="Roles"?"active":""}
+          onClick={()=>setTab("Roles")}
+        >
+          Roles
+        </button>
+
+        <button
+          className={tab==="Permissions"?"active":""}
+          onClick={()=>setTab("Permissions")}
+        >
+          Permissions
+        </button>
+
+        <button
+          className={tab==="Access Requests"?"active":""}
+          onClick={()=>setTab("Access Requests")}
+        >
+          Access Requests
+          {pendingUsers.length>0 && (
+            <Badge tone="pending">
+              {pendingUsers.length}
+            </Badge>
+          )}
+        </button>
+      </div>
+
+      {error && (
+        <div className="notice compact">
+          <CircleAlert size={18}/>
+          <span>{error}</span>
+        </div>
+      )}
+
+      {tab==="Access Requests" ? (
+        <Card>
+          <div className="card-head">
+            <div>
+              <h2>Access Requests</h2>
+              <p className="section-sub">
+                Review registrations requiring Administrator approval.
+              </p>
+            </div>
+
+            <Button
+              variant="outline"
+              onClick={loadUsers}
+              disabled={loading}
+            >
+              <RefreshCw size={14}/>
+              Refresh
+            </Button>
+          </div>
+
+          {loading ? (
+            <div className="empty-state">
+              Loading access requests...
+            </div>
+          ) : pendingUsers.length===0 ? (
+            <div className="empty-state">
+              <CheckCircle2 size={24}/>
+              <b>No pending access requests</b>
+              <span>All registration requests have been processed.</span>
+            </div>
+          ) : (
+            <Table>
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Verification</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {pendingUsers.map(u=>(
+                  <tr key={u.id}>
+                    <td>
+                      <div className="user-cell">
+                        <span>
+                          {String(u.name||u.username||"U")
+                            .split(" ")
+                            .map(x=>x[0])
+                            .join("")
+                            .slice(0,3)
+                            .toUpperCase()}
+                        </span>
+
+                        <div>
+                          <b>{u.name||u.username}</b>
+                          <small>@{u.username}</small>
+                        </div>
+                      </div>
+                    </td>
+
+                    <td>{u.email||"—"}</td>
+
+                    <td>
+                      <Badge tone="role">
+                        {u.role}
+                      </Badge>
+                    </td>
+
+                    <td>
+                      <div className="request-verification">
+                        <span>
+                          Email {u.email_verified?"Verified":"Pending"}
+                        </span>
+                        <span>
+                          Mobile {u.mobile_verified?"Verified":"Pending"}
+                        </span>
+                      </div>
+                    </td>
+
+                    <td>
+                      <Badge tone="pending">
+                        Pending
+                      </Badge>
+                    </td>
+
+                    <td>
+                      <div className="row-actions">
+                        <Button
+                          onClick={()=>handleApproval(u.id,"approve")}
+                          disabled={busy===u.id}
+                        >
+                          <CheckCircle2 size={14}/>
+                          {busy===u.id?"Processing...":"Approve"}
+                        </Button>
+
+                        <Button
+                          variant="danger"
+                          onClick={()=>handleApproval(u.id,"reject")}
+                          disabled={busy===u.id}
+                        >
+                          <Trash2 size={14}/>
+                          Reject
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          )}
+        </Card>
+      ) : tab==="Users" ? (
+        <>
+          <div className="stat-grid five">
+
+            <Card className="mini-stat">
+              <IconBox tone="blue">
+                <Users size={18}/>
+              </IconBox>
+              <div>
+                <span>Total Users</span>
+                <strong>{users.length}</strong>
+                <small>Registered accounts</small>
+              </div>
+            </Card>
+
+            <Card className="mini-stat">
+              <IconBox tone="green">
+                <CheckCircle2 size={18}/>
+              </IconBox>
+              <div>
+                <span>Active Users</span>
+                <strong>{activeUsers.length}</strong>
+                <small>Approved and active</small>
+              </div>
+            </Card>
+
+            <Card className="mini-stat">
+              <IconBox tone="purple">
+                <Users size={18}/>
+              </IconBox>
+              <div>
+                <span>Inactive Users</span>
+                <strong>{inactiveUsers.length}</strong>
+                <small>Inactive accounts</small>
+              </div>
+            </Card>
+
+            <Card className="mini-stat">
+              <IconBox tone="amber">
+                <ShieldCheck size={18}/>
+              </IconBox>
+              <div>
+                <span>Roles</span>
+                <strong>{Object.keys(roleCounts).length}</strong>
+                <small>Assigned roles</small>
+              </div>
+            </Card>
+
+            <Card className="mini-stat">
+              <IconBox tone="blue">
+                <KeyRound size={18}/>
+              </IconBox>
+              <div>
+                <span>Pending Requests</span>
+                <strong>{pendingUsers.length}</strong>
+                <small>Need approval</small>
+              </div>
+            </Card>
+
+          </div>
+
+          <div className="content-grid admin-grid">
+
+            <Card>
+
+              <div className="card-head">
+                <div>
+                  <h2>Users</h2>
+                  <p className="section-sub">
+                    All registered AGIS users.
+                  </p>
+                </div>
+              </div>
+
+              {loading ? (
+                <div className="empty-state">
+                  Loading users...
+                </div>
+              ) : (
+                <Table>
+                  <thead>
+                    <tr>
+                      <th>User</th>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>Approval</th>
+                      <th>Status</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {users.map(u=>(
+                      <tr key={u.id}>
+
+                        <td>
+                          <div className="user-cell">
+                            <span>
+                              {String(u.name||u.username||"U")
+                                .split(" ")
+                                .map(x=>x[0])
+                                .join("")
+                                .slice(0,3)
+                                .toUpperCase()}
+                            </span>
+
+                            <div>
+                              <b>{u.name||u.username}</b>
+                              <small>{u.username}</small>
+                            </div>
+                          </div>
+                        </td>
+
+                        <td>{u.email||"—"}</td>
+
+                        <td>
+                          <Badge tone="role">
+                            {u.role}
+                          </Badge>
+                        </td>
+
+                        <td>
+                          <Badge
+                            tone={
+                              String(u.approval_status||"Approved")
+                                .toLowerCase()
+                            }
+                          >
+                            {u.approval_status||"Approved"}
+                          </Badge>
+                        </td>
+
+                        <td>
+                          <Badge
+                            tone={u.active?"active":"inactive"}
+                          >
+                            {u.active?"Active":"Inactive"}
+                          </Badge>
+                        </td>
+
+                        <td className="row-actions">
+
+                          {u.approval_status==="Pending" ? (
+                            <>
+                              <Button
+                                onClick={()=>handleApproval(u.id,"approve")}
+                                disabled={busy===u.id}
+                              >
+                                <CheckCircle2 size={14}/>
+                                Approve
+                              </Button>
+
+                              <Button
+                                variant="danger"
+                                onClick={()=>handleApproval(u.id,"reject")}
+                                disabled={busy===u.id}
+                              >
+                                Reject
+                              </Button>
+                            </>
+                          ) : (
+                            <Eye size={15}/>
+                          )}
+
+                        </td>
+
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              )}
+
+              <div className="table-foot">
+                <span>
+                  Showing {users.length} users
+                </span>
+                <Button
+                  variant="outline"
+                  onClick={loadUsers}
+                >
+                  <RefreshCw size={14}/>
+                  Refresh
+                </Button>
+              </div>
+
+            </Card>
+
+            <div className="side-stack">
+
+              <Card>
+                <h3>Role Distribution</h3>
+
+                {Object.keys(roleCounts).length===0 ? (
+                  <p className="section-sub">
+                    No users found.
+                  </p>
+                ) : (
+                  Object.entries(roleCounts)
+                    .sort((a,b)=>b[1]-a[1])
+                    .map(([role,count])=>(
+                      <div
+                        className="legend-row"
+                        key={role}
+                      >
+                        <i/>
+                        <span>{role}</span>
+                        <b>{count}</b>
+                      </div>
+                    ))
+                )}
+              </Card>
+
+              <Card>
+
+                <div className="card-head">
+                  <h3>Recent Access Requests</h3>
+
+                  <button
+                    className="blue-link"
+                    onClick={()=>setTab("Access Requests")}
+                  >
+                    View All
+                    <ArrowRight size={13}/>
+                  </button>
+                </div>
+
+                {pendingUsers.length===0 ? (
+                  <div className="empty-state compact">
+                    <CheckCircle2 size={20}/>
+                    <span>No pending requests</span>
+                  </div>
+                ) : (
+                  pendingUsers.map(u=>(
+                    <div
+                      className="request"
+                      key={u.id}
+                    >
+                      <IconBox tone="blue">
+                        <KeyRound size={14}/>
+                      </IconBox>
+
+                      <div>
+                        <b>{u.email||u.username}</b>
+                        <span>
+                          {u.role} Access
+                        </span>
+                      </div>
+
+                      <Badge tone="pending">
+                        Pending
+                      </Badge>
+                    </div>
+                  ))
+                )}
+
+              </Card>
+
+              <div className="notice compact">
+                <ShieldCheck size={18}/>
+                <span>
+                  All user actions are logged and access is role-controlled.
+                </span>
+              </div>
+
+            </div>
+
+          </div>
+        </>
+      ) : (
+        <Card>
+          <h2>{tab}</h2>
+          <p className="section-sub">
+            This section is available from the User Management module.
+          </p>
+        </Card>
+      )}
+    </>
+  );
+}
+
+function RolesPage(){const[selected,setSelected]=useState("Administrator");const matrix=useMemo(()=>({Administrator:[1,1,1,1,1,1,1],Approver:[1,0,1,0,1,1,0],Reviewer:[1,0,1,0,1,1,0],Operator:[1,1,1,0,0,1,0]}),[]);return <><PageTitle title="Roles & Permissions" sub="Manage roles and configure permissions for platform resources."/><div className="tabs"><b>Roles</b><span>Permissions</span></div><div className="roles-layout"><Card className="roles-list"><div className="card-head"><h3>Roles (8)</h3><Button variant="outline"><Plus size={14}/> Add Role</Button></div><div className="search compact-search"><Search size={15}/><input placeholder="Search roles..."/></div>{roles.map((r,i)=><button key={r} className={`role-item ${selected===r?"active":""}`} onClick={()=>setSelected(r)}><IconBox tone={["purple","green","blue","blue","gray","amber","teal","amber"][i]}><Users size={16}/></IconBox><div><b>{r}</b><span>{i===0?"Full system access and control":i===1?"Review and approve outputs":i===2?"Review and provide feedback":i===3?"Create and manage transformations":i===4?"View documents and outputs":i===5?"View audit logs and reports":i===6?"Manage documents and data":"Limited readonly access"}</span></div><small>{[12,8,34,62,12,5,3,2][i]} Users</small></button>)}</Card><Card className="permission-panel"><div className="card-head"><div><h2>Role Details</h2><div className="role-detail"><IconBox tone="purple"><ShieldCheck size={20}/></IconBox><div><b>{selected}</b><Badge tone="green">System Role</Badge><span>Full system access and control over all modules and configurations.</span></div></div></div><Button variant="outline"><Edit3 size={14}/> Edit Role</Button></div><div className="role-meta"><span><Users size={15}/> Users <b>12</b></span><span><CalendarDays size={15}/> Created On <b>01 Mar 2025</b></span><span><UserRound size={15}/> Created By <b>System</b></span><span><CalendarDays size={15}/> Last Updated <b>20 May 2025, 10:30 AM</b></span></div><div className="info-strip"><Info size={16}/> Permissions define what actions users in this role can perform.</div><Table><thead><tr><th>Module / Resource</th><th>View</th><th>Create</th><th>Edit</th><th>Delete</th><th>Approve</th><th>Export</th><th>Configure</th></tr></thead><tbody>{perms.map((p,i)=><tr key={p}><td><b>{p}</b><small>{i===0?"View dashboards and insights":i===1?"Upload, view and manage documents":i===2?"Create and manage transformations":i===3?"View and manage generated outputs":i===4?"Review and approve outputs":i===5?"View audit logs and activity":i===6?"Manage system configurations":"Manage users and roles"}</small></td>{[0,1,2,3,4,5,6].map((_,j)=><td key={j}><span className={`perm ${selected==="Administrator"?"yes":(matrix[selected]||matrix.Reviewer)[j]?"yes":j===2||j===3?"limited":"no"}`}>{selected==="Administrator"?"✓":(matrix[selected]||matrix.Reviewer)[j]?"✓":j===2||j===3?"−":"×"}</span></td>)}</tr>)}</tbody></Table><div className="form-actions"><div className="notice compact"><ShieldCheck size={18}/>Changes to permissions are applied in real-time and logged in Audit Logs.</div><Button variant="secondary">Cancel</Button><Button><Save size={15}/>Save Changes</Button></div></Card></div></>}
+
+function SystemPage(){return <><PageTitle title="System Configuration" sub="Configure system settings and platform preferences."/><div className="tabs"><b>General Settings</b><span>Security</span><span>AI & Model Settings</span><span>Integrations</span><span>Notifications</span><span>Data Management</span></div><div className="content-grid system-layout"><div className="settings-grid">{[["Platform Settings",[["Platform Name","Adaptive GenAI Intelligence System (AGIS)"],["Default Language","English"],["Default Timezone","(UTC +05:30) Asia/Kolkata"]]],["Document & Transformation Settings",[["Default Output Type","Executive Summary"],["Default Detail Level","Standard"],["Auto Expiry of Documents","90 Days"]]],["Display Settings",[["Theme","Light"],["Date Format","24 May 2025 (DD MMM YYYY)"],["Items Per Page","10"]]],["Notification Preferences",[["Email Notifications","Receive email alerts for system activities"],["In-App Notifications","Show in-app notifications"],["Transformation Alerts","Alerts for completed transformations"],["Audit Log Alerts","Critical activity alerts"]]],["File & Storage Settings",[["Max File Size","50 MB"],["Allowed File Types","PDF, DOCX, TXT, PPTX"],["Storage Quota (Per User)","10 GB"]]],["Session & Access Settings",[["Session Timeout","30 Minutes"],["Multi-Factor Authentication","Protected"],["Concurrent Sessions (Per User)","3"]]]].map(([title,fields])=><Card key={title}><h3>{title}</h3><p className="section-sub">Configure defaults and preferences</p>{fields.map(([l,v])=><label className="setting-row" key={l}><span>{l}</span>{["Email Notifications","In-App Notifications","Transformation Alerts","Audit Log Alerts","Multi-Factor Authentication"].includes(l)?<div className={`toggle ${l==="Audit Log Alerts"?"off":""}`}><i/></div>:<div className="setting-input">{v}<ChevronDown size={13}/></div>}</label>)}<Button variant="outline"><Save size={14}/>Save Changes</Button></Card>)}</div><div className="side-stack"><Card><h3>System Information</h3>{[["AGIS Version","v2.1.0"],["Build Number","2025.05.24.01"],["Environment","Production"],["Database Status","Healthy"],["Last Backup","24 May 2025, 02:30 AM"],["Uptime","15d 6h 42m"]].map(([l,v])=><div className="period-row" key={l}><span>{l}</span><b className={l==="Database Status"?"green-text":""}>{v}</b></div>)}</Card><Card><h3>Configuration Summary</h3>{[["Total Configurations","42"],["Active Configurations","38"],["Modified Today","5"],["Pending Changes","0"]].map(([l,v])=><div className="period-row" key={l}><span>{l}</span><b>{v}</b></div>)}</Card><Card><div className="card-head"><h3>Recent Configuration Changes</h3><a>View All</a></div>{["AI model updated to GPT-4o","Session timeout changed","Storage quota updated"].map((x,i)=><div className="change" key={x}><IconBox tone={["purple","blue","green"][i]}>{i+1}</IconBox><div><b>{x}</b><span>By Administrator<br/>24 May 2025, {11-i}:30 AM</span></div></div>)}</Card><div className="notice compact"><ShieldCheck size={18}/><span>All configuration changes are logged and require appropriate permissions.</span></div></div></div></>}
+
+function TemplatesPage(){return <><PageTitle title="Template Management" sub="Create, manage, and organize templates for content transformation." actions={<Button><Plus size={16}/>Create Template</Button>}/><div className="tabs"><b>Templates</b><span>Categories</span></div><div className="stat-grid four">{[["Total Templates","48",FileText,"blue"],["Active Templates","36",CheckCircle2,"green"],["Draft Templates","6",Clock3,"amber"],["Archived Templates","6",Archive,"purple"]].map(([l,n,I,t])=><Card className="mini-stat" key={l}><IconBox tone={t}><I size={18}/></IconBox><div><span>{l}</span><strong>{n}</strong><small>{l==="Total Templates"?"All templates in system":l==="Active Templates"?"Currently available":l==="Draft Templates"?"In draft":"Not in use"}</small></div></Card>)}</div><div className="content-grid template-layout"><Card><Toolbar searchText="Search templates by name, category or tag..."><Button variant="select">All Categories <ChevronDown size={13}/></Button><Button variant="select">All Status <ChevronDown size={13}/></Button><Button variant="select">All Created By <ChevronDown size={13}/></Button><Button variant="select"><Filter size={14}/> Filters</Button></Toolbar><Table><thead><tr><th>Template Name</th><th>Category</th><th>Output Type</th><th>Audience</th><th>Status</th><th>Version</th><th>Updated On</th><th>Actions</th></tr></thead><tbody>{[["Executive Summary Template","Reports","Executive Summary","Leadership","Active","v2.1","24 May 2025, 11:30 AM"],["Technical Brief Template","Briefs","Technical Brief","Technical Team","Active","v1.4","23 May 2025, 04:15 PM"],["Intelligence Note Template","Notes","Intelligence Note","Analyst","Draft","v0.9","22 May 2025, 10:05 AM"],["Situation Report Template","Reports","Situation Report","Leadership","Active","v3.0","21 May 2025, 09:20 AM"],["Operational Update Template","Updates","Operational Update","Operations Team","Active","v1.2","20 May 2025, 02:45 PM"],["Quick Summary Template","Summaries","Summary","Analyst","Active","v1.1","19 May 2025, 11:10 AM"],["Custom Narrative Template","Narratives","Narrative","General","Archived","v1.0","10 May 2025, 05:30 PM"],["Presentation Deck Template","Presentations","Presentation","Leadership","Draft","v0.8","08 May 2025, 03:25 PM"]].map((r,i)=><tr key={i}><td><div className="doc-cell"><IconBox tone={i%2?"purple":"green"}><FileText size={15}/></IconBox><div><b>{r[0]}</b><span>{i===0?"Standard executive summary format":i===1?"Detailed technical brief structure":"Structured template"}</span></div></div></td><td><Badge tone="role">{r[1]}</Badge></td><td>{r[2]}</td><td>{r[3]}</td><td><Badge tone={r[4].toLowerCase()}>{r[4]}</Badge></td><td>{r[5]}</td><td>{r[6]}</td><td><MoreVertical size={16}/></td></tr>)}</tbody></Table><div className="table-foot"><span>Showing 1 to 8 of 48 templates</span><Pager/></div></Card><Card className="template-preview"><h3>Template Preview</h3><Badge tone="green">Active</Badge> <Badge tone="blue">v2.1</Badge><h3>Executive Summary Template</h3><p>Standard executive summary format</p>{[["Category","Reports"],["Output Type","Executive Summary"],["Target Audience","Leadership"],["Description","A structured template for executive summaries with key highlights, context, analysis and recommendations."]].map(([l,v])=><div className="preview-field" key={l}><span>{l}</span><b>{v}</b></div>)}<div className="tags"><span>summary</span><span>executive</span><span>standard</span><span>leadership</span></div><div className="preview-updated"><CalendarDays size={14}/>24 May 2025, 11:30 AM<br/><span>by Administrator</span></div><div className="form-actions"><Button variant="secondary"><Eye size={14}/>Preview Template</Button><Button><Edit3 size={14}/>Edit Template</Button></div></Card></div><div className="notice"><Info size={18}/><span>Templates ensure consistency and quality across all transformations.</span></div></>}
+
+function AuditLogs(){const[logs,setLogs]=useState([]);useEffect(() => {
+  let alive = true;
+
+  const loadLogs = async () => {
+    try {
+      const data = await api.logs();
+      if (alive) setLogs(data);
+    } catch (e) {
+      // Keep mock logs
+    }
+  };
+
+  loadLogs();
+
+  return () => {
+    alive = false;
+  };
+}, []);const rows=logs.length?logs:[{id:1,timestamp:"24 May 2025, 11:46 AM",user:"Rohit Sharma",role:"Reviewer",action:"Reviewed Output",resource:"Executive Summary",details:"Approved",ip_address:"10.10.5.23"},{id:2,timestamp:"24 May 2025, 11:45 AM",user:"Ram Verma",role:"Operator",action:"Generated Output",resource:"Executive Summary",details:"Output generated successfully",ip_address:"10.10.5.23"},{id:3,timestamp:"24 May 2025, 11:45 AM",user:"Ram Verma",role:"Operator",action:"Created Transformation",resource:"Situation Report.pdf",details:"Executive Summary",ip_address:"10.10.5.23"},{id:4,timestamp:"24 May 2025, 10:15 AM",user:"Admin User",role:"Administrator",action:"User Role Updated",resource:"Rohit Sharma",details:"Role changed to Reviewer",ip_address:"10.10.5.10"},{id:5,timestamp:"23 May 2025, 04:20 PM",user:"Rohit Sharma",role:"Reviewer",action:"Requested Changes",resource:"Executive Summary",details:"Changes requested by reviewer",ip_address:"10.10.5.23"}];return <><PageTitle title="Audit Logs" sub="Track and review all system activities." actions={<Button variant="secondary"><Download size={15}/>Export Logs</Button>}/><div className="content-grid audit-layout"><Card><Toolbar searchText="Search by action, user, document..."><Button variant="select"><CalendarDays size={14}/>19 May 2025 - 25 May 2025 <ChevronDown size={13}/></Button><Button variant="select">All Roles <ChevronDown size={13}/></Button><Button variant="select">All Actions <ChevronDown size={13}/></Button><Button variant="select"><Filter size={14}/> Filters</Button></Toolbar><Table><thead><tr><th>Time</th><th>User</th><th>Role</th><th>Action</th><th>Resource</th><th>Details</th><th>IP Address</th></tr></thead><tbody>{rows.map((x,i)=><tr key={i}><td>{x.timestamp}</td><td><div className="user-cell"><span>{String(x.user||"A")[0]}</span><div><b>{x.user||"—"}</b><small>{x.email||"user@agis.gov.in"}</small></div></div></td><td><Badge tone="role">{x.role}</Badge></td><td>{x.action}</td><td>{x.resource}</td><td>{x.details}</td><td>{x.ip_address}</td></tr>)}</tbody></Table><div className="table-foot"><span>Showing 1 to 8 of 128 entries</span><Pager/></div></Card><div className="side-stack"><Card><h3>Log Details</h3>{[[Clock3,"Time","24 May 2025, 11:46 AM"],[UserRound,"User","Rohit Sharma"],[Shield,"Role","Reviewer"],[Workflow,"Action","Reviewed Output"],[FileText,"Resource","Executive Summary / Situation Report.pdf"],[Info,"Details","Approved"],[Database,"IP Address","10.10.5.23"],[KeyRound,"Session ID","a1b2c3d4e5f6g7h8"]].map(([I,l,v])=><div className="summary-row" key={l}><I size={15}/><div><span>{l}</span><b>{v}</b></div></div>)}</Card><Card><h3>Summary (This Period)</h3>{[["Total Activities","128"],["Unique Users","12"],["Successful Actions","118"],["Failed Actions","0"]].map(([l,v])=><div className="period-row" key={l}><span>{l}</span><b>{v}</b></div>)}<a className="blue-link">View Analytics <ArrowRight size={13}/></a></Card><div className="notice compact"><ShieldCheck size={18}/><span>All activities are securely logged and tamper-protected.</span></div></div></div></>}
+
 function Review(){
   const{id}=useParams();
   const[t,setT]=useState(null);
