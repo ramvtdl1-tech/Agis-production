@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import (
@@ -105,6 +106,12 @@ class ApprovalOTPRequest(BaseModel):
 class ApprovalOTPVerifyRequest(BaseModel):
     challenge_id: int
     code: str
+
+
+class TextDocumentRequest(BaseModel):
+    name: str = "Text Input"
+    text: str
+    source_type: str = "text"
 
 
 class TransformRequest(BaseModel):
@@ -1010,6 +1017,129 @@ async def upload(
         "name": d.name,
         "extraction_status": d.extraction_status,
     }
+
+
+# ---------------------------------------------------------
+# CREATE TEXT / PROMPT DOCUMENT
+# ---------------------------------------------------------
+
+@app.post("/api/documents/text")
+async def create_text_document(
+    b: TextDocumentRequest,
+    request: Request,
+
+    user=Depends(
+        require_permission(
+            "Documents",
+            "create",
+        )
+    ),
+
+    db: Session = Depends(get_db),
+):
+    limit(
+        f"text-input:{user.id}",
+        20,
+        3600,
+    )
+
+    text = (b.text or "").strip()
+
+    if not text:
+        raise HTTPException(
+            400,
+            "Text input cannot be empty",
+        )
+
+    if len(text) > 120000:
+        raise HTTPException(
+            413,
+            "Text input exceeds the 120000 character limit",
+        )
+
+    name = (b.name or "").strip() or "Text Input"
+
+    if len(name) > 255:
+        name = name[:255]
+
+    source_type = (b.source_type or "text").strip().lower()
+
+    if source_type not in {"text", "prompt"}:
+        raise HTTPException(
+            400,
+            "source_type must be 'text' or 'prompt'",
+        )
+
+    safe_type = "prompt" if source_type == "prompt" else "text"
+
+    object_key = (
+        f"text/{user.id}/"
+        f"{uuid.uuid4().hex}.txt"
+    )
+
+    tmp = f"/tmp/agis-{user.id}-{uuid.uuid4().hex}.txt"
+
+    try:
+        with open(
+            tmp,
+            "w",
+            encoding="utf-8",
+        ) as f:
+            f.write(text)
+
+        put_object(
+            object_key,
+            tmp,
+            "text/plain; charset=utf-8",
+        )
+
+        d = Document(
+            name=name,
+            mime_type="text/plain",
+            size_bytes=len(text.encode("utf-8")),
+            object_key=object_key,
+            extracted_text=text,
+            extraction_status="Complete",
+            status="Ready",
+            owner_id=user.id,
+        )
+
+        db.add(d)
+        db.commit()
+        db.refresh(d)
+
+        audit(
+            db,
+            user,
+            (
+                "Created "
+                + (
+                    "Prompt"
+                    if safe_type == "prompt"
+                    else "Text Document"
+                )
+            ),
+            d.name,
+            f"Document #{d.id}",
+            ip(request),
+        )
+
+        return {
+            "id": d.id,
+            "name": d.name,
+            "source_type": safe_type,
+            "mime_type": d.mime_type,
+            "size_bytes": d.size_bytes,
+            "extraction_status": d.extraction_status,
+            "status": d.status,
+        }
+
+    finally:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except Exception:
+            pass
 
 
 # =========================================================
